@@ -26,8 +26,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 4786237508241650013}
   serializedVersion: 2
-  m_LocalRotation: {x: -0.0033449829, y: 0.70709896, z: -0.0033449233, w: 0.70709884}
-  m_LocalPosition: {x: 0.0000006536143, y: -19.57287, z: 0}
+  m_LocalRotation: {x: 0.50235933, y: 0.50235933, z: 0.49762955, w: -0.49762955}
+  m_LocalPosition: {x: 0.0000002491554, y: -10.383081, z: -0.00018572334}
   m_LocalScale: {x: 4.28, y: 4.28, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -413,8 +413,8 @@ ParticleSystem:
     serializedVersion: 6
     enabled: 1
     type: 8
-    angle: 5.1399093
-    length: 19.9
+    angle: 9.605789
+    length: 10.576616
     boxThickness: {x: 0, y: 0, z: 0}
     radiusThickness: 1
     donutRadius: 0.2

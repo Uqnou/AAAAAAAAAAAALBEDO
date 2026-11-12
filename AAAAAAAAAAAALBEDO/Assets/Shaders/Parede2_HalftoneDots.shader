@@ -9,6 +9,7 @@ Shader "Custom/URP_Parede2_HalftoneDots"
         _FromMin ("Light From Min", Float) = -1.5
         _FromMax ("Light From Max", Float) = 2.1
         _Steps ("Quantization Steps", Float) = 4.0
+        _LightIntensityScale ("Light Sensitivity Scale", Float) = 1.0
     }
 
     SubShader
@@ -59,6 +60,7 @@ Shader "Custom/URP_Parede2_HalftoneDots"
                 float _FromMin;
                 float _FromMax;
                 float _Steps;
+                float _LightIntensityScale;
             CBUFFER_END
 
             Varyings vert(Attributes input)
@@ -79,7 +81,7 @@ Shader "Custom/URP_Parede2_HalftoneDots"
             {
                 float3 normalWS = normalize(input.normalWS);
 
-                // Calculate total diffuse lighting intensity from all scene lights (Directional + Spots)
+                // Total diffuse lighting: replicate Principled BSDF with base color 0.8
                 Light mainLight = GetMainLight(TransformWorldToShadowCoord(input.positionWS));
                 float totalLight = saturate(dot(normalWS, mainLight.direction)) * mainLight.shadowAttenuation;
 
@@ -93,30 +95,35 @@ Shader "Custom/URP_Parede2_HalftoneDots"
                 }
                 #endif
 
-                // 1. Replicate Blender Map Range (with stepped quantization if _Steps > 0)
-                float normalized = saturate((totalLight - _FromMin) / (_FromMax - _FromMin));
+                // Radiance reaching the Shader to RGB node
+                float radiance = totalLight * 0.8 * _LightIntensityScale;
+
+                // Blender Node Map Range (Linear):
+                // In Blender, when unlit (radiance = 0), mapRange = (0 - (-1.5)) / (2.1 - (-1.5)) = 0.416667
+                float mapRangeResult = saturate((radiance - _FromMin) / (_FromMax - _FromMin));
                 if (_Steps > 0.0)
                 {
-                    normalized = floor(normalized * _Steps) / _Steps;
+                    mapRangeResult = floor(mapRangeResult * _Steps) / _Steps;
                 }
 
-                // 2. Window coordinates (Screen space UV)
+                // Window coordinates (screen-space UV)
                 float2 screenUV = input.screenPos.xy / max(input.screenPos.w, 0.00001);
-                
-                // Replicate Blender node: Vector Math (Multiply Texture Coordinate.Window with CombineXYZ(Value * 1.7777778, Value, 0))
+
+                // Multiply with Combine XYZ(Value * 1.7777778, Value, 0.0)
                 float2 gridUV = screenUV * float2(_Frequency * _AspectRatio, _Frequency);
-                
-                // Replicate Blender Fraction
                 float2 fractUV = frac(gridUV);
 
-                // Replicate Blender Vector Math: Distance(fractUV, (0.5, 0.5, 0.5))
-                float dist = distance(float3(fractUV, 0.0), float3(0.5, 0.5, 0.0));
+                // Blender Vector Math.002: Distance(fractUV, (0.5, 0.5, 0.5))
+                // fractUV has Z=0, so distance in 3D to (0.5, 0.5, 0.5) is:
+                // sqrt((fx - 0.5)^2 + (fy - 0.5)^2 + 0.25)
+                // Minimum distance at center of cell is sqrt(0.25) = 0.5!
+                float dist = sqrt(dot(fractUV - 0.5, fractUV - 0.5) + 0.25);
 
-                // Replicate Blender Math: Less Than(dist, mapRangeResult)
-                // With antialiasing for crisp rendering
-                float dotRadius = normalized * 0.5;
+                // Blender Math.001: Less Than(dist, mapRangeResult)
+                // When unlit, mapRangeResult <= 0.41667 < 0.5 <= dist everywhere, so it is 100% black!
+                // As light hits the surface, mapRangeResult exceeds 0.5, opening white circular dots!
                 float delta = fwidth(dist);
-                float isDot = 1.0 - smoothstep(dotRadius - delta, dotRadius + delta, dist);
+                float isDot = 1.0 - smoothstep(mapRangeResult - delta, mapRangeResult + delta, dist);
 
                 half3 col = lerp(_BackgroundColor.rgb, _DotColor.rgb, isDot);
                 return half4(col, 1.0);

@@ -30,6 +30,7 @@ Material:
     - _FromMax: 2.1
     - _FromMin: -1.5
     - _LightCutoff: 0.5
+    - _LightIntensityScale: 1
     - _PatternScale: 20
     - _PatternSoftness: 0.03
     - _PatternThreshold: 0.35

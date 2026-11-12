@@ -20,7 +20,7 @@ public class CreateBlenderMaterials : Editor
         Shader shadowShader = Shader.Find("Custom/URP_StylizedShadow");
         Shader outlineShader = Shader.Find("Custom/URP_Outline");
 
-        // 1. Parede1 (ajustavel) - Voronoi Procedural Hatching
+        // 1. Parede1 (ajustavel) - Voronoi Halftone Dots (Higher Sensitivity / Different Density)
         CreateOrUpdateMaterial("Parede1 (ajustavel)", parede1Shader, mat =>
         {
             mat.SetColor("_LightColor", Color.white);
@@ -28,11 +28,12 @@ public class CreateBlenderMaterials : Editor
             mat.SetFloat("_Scale", 0.07f);
             mat.SetFloat("_AspectRatio", 0.55f);
             mat.SetFloat("_VoronoiScale", 5.0f);
-            mat.SetFloat("_RampStart", 0.268f);
-            mat.SetFloat("_RampEnd", 0.300f);
+            mat.SetFloat("_RampStart", 0.2681818f);
+            mat.SetFloat("_RampEnd", 0.3000000f);
+            mat.SetFloat("_LightIntensityScale", 1.0f);
         });
 
-        // 2. Parede2 - Halftone Screen Dots
+        // 2. Parede2 - Halftone Screen Dots (Standard Grid)
         CreateOrUpdateMaterial("Parede2", parede2Shader, mat =>
         {
             mat.SetColor("_DotColor", Color.white);
@@ -42,6 +43,7 @@ public class CreateBlenderMaterials : Editor
             mat.SetFloat("_FromMin", -1.5f);
             mat.SetFloat("_FromMax", 2.1f);
             mat.SetFloat("_Steps", 4.0f);
+            mat.SetFloat("_LightIntensityScale", 1.0f);
         });
 
         // 3. Fogo
@@ -153,7 +155,7 @@ public class CreateBlenderMaterials : Editor
             mat.SetFloat("_Opacity", 0.5f);
         });
 
-        // 14. Outline (Branco ou Preto puro de acordo com iluminação)
+        // 14. Outline (Branco puro nos contornos iluminados / silhuetas)
         CreateOrUpdateMaterial("Outline", outlineShader, mat =>
         {
             mat.SetColor("_Color", Color.white);
