@@ -18,10 +18,11 @@ Mapa de componentes de software do projeto Unity **ALBEDO**. Todo o código segu
 | Script | Função Principal | Linhas | Nota de Detalhe |
 | :--- | :--- | :--- | :--- |
 | `PlayerController.cs` | Movimentação WASD isométrica e pegar/soltar objetos [E] | 174 | [[Script - PlayerController]] |
-| `PrismaController.cs` | Dispersão/projeção de feixe de luz e interação de cores | 366 | [[Script - PrismaController]] |
+| `PrismaController.cs` | Dispersão/projeção de God Ray volumétrico e interação de cores | 280 | [[Script - PrismaController]] |
 | `SombraController.cs` | Sombra física que se torna transponível ao ser iluminada | 135 | [[Script - SombraController]] |
 | `IsometricCamera.cs` | Câmera isométrica ortográfica com interpolação dinâmica | 137 | [[Script - IsometricCamera]] |
 | `CameraTriggerZone.cs`| Volume Trigger para alterar parâmetros da câmera por zona | 125 | [[Script - CameraTriggerZone]] |
+| `GodRayBeam.cs` | Feixe volumétrico vertical com partículas de poeira e raycast | 300 | [[Script - GodRayBeam]] |
 | `LightSource.cs` | Ponto de luz emissor com gatilho físico e cor | 76 | [[Script - LightSource]] |
 | `PickableObject.cs` | Objeto manipulável no cenário via tecla [E] | 73 | [[Script - PickableObject e Prompt]] |
 | `InteractionPrompt.cs` | Feedback visual na UI da tecla de interação [E] | 56 | [[Script - PickableObject e Prompt]] |

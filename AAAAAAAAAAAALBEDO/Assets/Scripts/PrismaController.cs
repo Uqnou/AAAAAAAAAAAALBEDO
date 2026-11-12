@@ -1,366 +1,294 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-/// <summary>
-/// Modo de combinação da cor do feixe emitido pelo prisma.
-/// </summary>
-public enum PrismColorMode
-{
-    [Tooltip("Se o prisma tiver cor diferente de branco, ela tinge a luz. Se for branco, usa a cor da luz.")]
-    PrismTint,
-
-    [Tooltip("Multiplicação física de cores.")]
-    Multiply,
-
-    [Tooltip("Usa sempre a cor do prisma se diferente de branco, caso contrário a cor da luz.")]
-    PrismOverrides,
-
-    [Tooltip("Usa diretamente a cor da luz que atingiu o prisma.")]
-    LightColorDirect
-}
+public enum PrismColorMode { PrismTint, Multiply, PrismOverrides, LightColorDirect }
 
 /// <summary>
-/// Controla o comportamento do Prisma.
-/// Deve ser adicionado MANUALMENTE pelo desenvolvedor aos objetos de prisma desejados.
-/// - Quando encosta no collider de uma fonte com o script LightSource, emite um feixe de luz para frente.
-/// - Só emite luz enquanto estiver em contato direto com a luz.
-/// - Ao sair de perto da luz, apaga o feixe imediatamente.
-/// - Quando o feixe atinge uma SombraController, muda o collider dela para IsTrigger = true e a oculta.
+/// Controla o Prisma no ALBEDO. Quando intercepta objetos na layer 'Light' ou fontes de luz,
+/// instancia o prefab GodRay_Mystic, permite ajustar suas dimensões e projeta o anel de luz
+/// em qualquer objeto/parede impactado.
 /// </summary>
-[SelectionBase]
-[DisallowMultipleComponent]
+[SelectionBase, DisallowMultipleComponent]
 public class PrismaController : MonoBehaviour
 {
     [Header("Cores")]
-    [Tooltip("Cor intrínseca do prisma.")]
     [SerializeField] private Color prismColor = Color.white;
-
-    [Tooltip("Modo de combinação entre a cor do prisma e a cor da luz.")]
     [SerializeField] private PrismColorMode colorMode = PrismColorMode.PrismTint;
 
-    [Header("Feixe de Luz")]
-    [Tooltip("Ponto de saída do feixe (se nulo, usa a posição do prisma).")]
+    [Header("Emissão de God Ray (Prefab)")]
+    [SerializeField] private bool emitGodRay = true;
+    [Tooltip("Prefab do God Ray (Assets/GodRay_Mystic.prefab).")]
+    [SerializeField] private GameObject godRayPrefab;
+    [SerializeField] private GodRayBeam prismGodRay;
+    [Tooltip("LayerMask para detecção de objetos de luz (camada 'Light').")]
+    [SerializeField] private LayerMask lightLayerMask;
+
+    [Header("Dimensões do God Ray")]
+    [SerializeField] private bool customizeGodRaySize = true;
+    [Range(0.01f, 5f)] [SerializeField] private float godRayTopRadius = 0.35f;
+    [Range(0.1f, 10f)] [SerializeField] private float godRayBottomRadius = 2.14f;
+    [Range(1f, 100f)] [SerializeField] private float godRayLength = 20f;
+
+    [Header("Feixe Laser (LineRenderer)")]
     [SerializeField] private Transform emissionPoint;
-
-    [Tooltip("Direção local de emissão (padrão: Vector3.forward / para frente).")]
     [SerializeField] private Vector3 emissionDirection = Vector3.forward;
-
-    [Tooltip("Alcance máximo do feixe de luz.")]
-    [SerializeField] private float beamRange = 30f;
-
-    [Tooltip("Raio de espessura do feixe para detecção de sombras.")]
-    [SerializeField] private float beamRadius = 0.35f;
-
-    [Tooltip("Espessura visual do feixe de luz.")]
-    [SerializeField] private float visualBeamWidth = 0.25f;
-
-    [Tooltip("Camadas de obstáculos sólidos (paredes, chão) que bloqueiam o feixe.")]
+    [SerializeField] private float beamRange = 30f, beamRadius = 0.35f, visualBeamWidth = 0.25f;
+    [SerializeField] private bool useLineRendererWithGodRay = false, enableDynamicLight = false;
+    [SerializeField] private Material beamMaterial;
     [SerializeField] private LayerMask obstacleLayers = ~0;
 
-    [Header("Efeitos")]
-    [Tooltip("Material do feixe (se vazio, usa material aditivo URP unlit).")]
-    [SerializeField] private Material beamMaterial;
-
-    [Tooltip("Gera um Spotlight real em tempo de execução para iluminar a cena.")]
-    [SerializeField] private bool enableDynamicLight = true;
-
-    // Fontes de luz atualmente em contato físico
     private readonly HashSet<LightSource> activeLights = new HashSet<LightSource>();
     private readonly HashSet<SombraController> currentlyHitSombras = new HashSet<SombraController>();
     private readonly List<SombraController> toRemoveSombras = new List<SombraController>();
+    private readonly Dictionary<Collider, Color> lightLayerHits = new Dictionary<Collider, Color>();
 
     private LineRenderer lineRenderer;
     private Light spotlight;
     private Color activeEmittedColor = Color.white;
     private bool isEmitting = false;
+    private GodRayBeam activeSourceGodRay = null;
 
     public bool IsEmitting => isEmitting;
     public Color PrismColor { get => prismColor; set => prismColor = value; }
+    public Color ActiveEmittedColor => activeEmittedColor;
+    public GodRayBeam PrismGodRay => prismGodRay;
+    public GameObject GodRayPrefab { get => godRayPrefab; set => godRayPrefab = value; }
 
     private void Awake()
     {
-        if (emissionPoint == null)
-        {
-            emissionPoint = transform;
-        }
+        if (emissionPoint == null) emissionPoint = transform;
+        if (lightLayerMask.value == 0) { int ll = LayerMask.NameToLayer("Light"); if (ll != -1) lightLayerMask = 1 << ll; }
+        AutoAssignPrefab(); SetupBeamVisuals(); EnsureGodRayInstance();
+    }
 
-        SetupBeamVisuals();
+    private void OnValidate()
+    {
+        if (lightLayerMask.value == 0) { int ll = LayerMask.NameToLayer("Light"); if (ll != -1) lightLayerMask = 1 << ll; }
+        AutoAssignPrefab();
+        if (customizeGodRaySize && prismGodRay != null) prismGodRay.SetDimensions(godRayTopRadius, godRayBottomRadius, godRayLength);
+    }
+
+    private void AutoAssignPrefab()
+    {
+#if UNITY_EDITOR
+        if (godRayPrefab == null) godRayPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/GodRay_Mystic.prefab");
+#endif
     }
 
     private void SetupBeamVisuals()
     {
-        GameObject beamObj = new GameObject("PrismLightBeam");
-        beamObj.transform.SetParent(emissionPoint);
-        beamObj.transform.localPosition = Vector3.zero;
-        beamObj.transform.localRotation = Quaternion.LookRotation(emissionDirection);
-
-        lineRenderer = beamObj.AddComponent<LineRenderer>();
-        lineRenderer.positionCount = 2;
-        lineRenderer.startWidth = visualBeamWidth;
-        lineRenderer.endWidth = visualBeamWidth;
-        lineRenderer.useWorldSpace = true;
-        lineRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-        lineRenderer.receiveShadows = false;
+        GameObject bObj = new GameObject("PrismLightBeam");
+        bObj.transform.SetParent(emissionPoint != null ? emissionPoint : transform);
+        bObj.transform.localPosition = Vector3.zero; bObj.transform.localRotation = Quaternion.LookRotation(emissionDirection);
+        lineRenderer = bObj.AddComponent<LineRenderer>();
+        lineRenderer.positionCount = 2; lineRenderer.startWidth = lineRenderer.endWidth = visualBeamWidth;
+        lineRenderer.useWorldSpace = true; lineRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
 
         if (beamMaterial == null)
         {
-            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
-            if (shader == null) shader = Shader.Find("Sprites/Default");
-            if (shader == null) shader = Shader.Find("Unlit/Color");
-
-            beamMaterial = new Material(shader);
-            beamMaterial.name = "PrismBeam_Mat";
-
+            Shader s = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Sprites/Default");
+            beamMaterial = new Material(s) { name = "PrismBeam_Mat" };
             if (beamMaterial.HasProperty("_Surface")) beamMaterial.SetFloat("_Surface", 1);
             if (beamMaterial.HasProperty("_Blend")) beamMaterial.SetFloat("_Blend", 1);
         }
-
-        lineRenderer.material = beamMaterial;
-        lineRenderer.enabled = false;
+        lineRenderer.material = beamMaterial; lineRenderer.enabled = false;
 
         if (enableDynamicLight)
         {
-            GameObject lightObj = new GameObject("PrismSpotlight");
-            lightObj.transform.SetParent(beamObj.transform);
-            lightObj.transform.localPosition = Vector3.zero;
-            lightObj.transform.localRotation = Quaternion.identity;
-
-            spotlight = lightObj.AddComponent<Light>();
-            spotlight.type = LightType.Spot;
-            spotlight.range = beamRange;
-            spotlight.spotAngle = 40f;
-            spotlight.innerSpotAngle = 15f;
-            spotlight.intensity = 3.5f;
-            spotlight.enabled = false;
+            GameObject lObj = new GameObject("PrismSpotlight"); lObj.transform.SetParent(bObj.transform); lObj.transform.localPosition = Vector3.zero;
+            spotlight = lObj.AddComponent<Light>(); spotlight.type = LightType.Spot; spotlight.range = beamRange; spotlight.spotAngle = 40f; spotlight.intensity = 3.5f; spotlight.enabled = false;
         }
+    }
+
+    private void EnsureGodRayInstance()
+    {
+        if (prismGodRay != null || (prismGodRay = GetComponentInChildren<GodRayBeam>(true)) != null)
+        {
+            prismGodRay.enabled = true; if (customizeGodRaySize) prismGodRay.SetDimensions(godRayTopRadius, godRayBottomRadius, godRayLength); return;
+        }
+        AutoAssignPrefab(); if (godRayPrefab == null) return;
+        Transform parent = emissionPoint != null ? emissionPoint : transform;
+        GameObject rayObj = Instantiate(godRayPrefab, parent);
+        rayObj.name = $"{gameObject.name}_GodRay"; rayObj.transform.localPosition = Vector3.zero;
+        rayObj.transform.localRotation = Quaternion.FromToRotation(Vector3.down, emissionDirection);
+        prismGodRay = rayObj.GetComponent<GodRayBeam>() ?? rayObj.GetComponentInChildren<GodRayBeam>();
+        if (prismGodRay != null)
+        {
+            prismGodRay.enabled = true; if (customizeGodRaySize) prismGodRay.SetDimensions(godRayTopRadius, godRayBottomRadius, godRayLength);
+            prismGodRay.SetColor(activeEmittedColor);
+        }
+        rayObj.SetActive(false);
     }
 
     private void Update()
     {
-        // Limpa referências nulas ou inativas
         activeLights.RemoveWhere(l => l == null || !l.gameObject.activeInHierarchy || !l.enabled);
-
-        if (activeLights.Count > 0)
+        if (lightLayerHits.Count > 0)
         {
-            if (!isEmitting)
-            {
-                isEmitting = true;
-            }
-            UpdateEmissionColor();
-            UpdateBeamAndShadows();
+            List<Collider> dead = null;
+            foreach (var c in lightLayerHits.Keys) if (c == null || !c.gameObject.activeInHierarchy) (dead ?? (dead = new List<Collider>())).Add(c);
+            if (dead != null) foreach (var c in dead) lightLayerHits.Remove(c);
         }
-        else
-        {
-            if (isEmitting)
-            {
-                StopEmissionImmediately();
-            }
-        }
+        if (activeLights.Count > 0 || lightLayerHits.Count > 0) { isEmitting = true; RefreshSourceGodRay(); UpdateEmissionColor(); UpdateBeamAndShadows(); }
+        else if (isEmitting) StopEmissionImmediately();
     }
 
-    #region Detecção de Contato com LightSource
-
-    private void OnTriggerEnter(Collider other)
+    private void RefreshSourceGodRay()
     {
-        LightSource ls = other.GetComponent<LightSource>() ?? other.GetComponentInParent<LightSource>();
-        if (ls != null)
-        {
-            activeLights.Add(ls);
-        }
+        if (activeSourceGodRay != null && activeSourceGodRay.gameObject.activeInHierarchy) return;
+        activeSourceGodRay = null;
+        foreach (var ls in activeLights) if (ls != null) { var gr = ls.GetComponent<GodRayBeam>() ?? ls.GetComponentInParent<GodRayBeam>(); if (gr != null) { activeSourceGodRay = gr; break; } }
     }
 
-    private void OnTriggerExit(Collider other)
+    private bool IsLightLayer(GameObject go)
     {
-        LightSource ls = other.GetComponent<LightSource>() ?? other.GetComponentInParent<LightSource>();
-        if (ls != null)
-        {
-            activeLights.Remove(ls);
-        }
+        if (go == null) return false;
+        int mask = lightLayerMask.value != 0 ? lightLayerMask.value : (1 << LayerMask.NameToLayer("Light"));
+        return (mask & (1 << go.layer)) != 0 || (go.transform.parent != null && (mask & (1 << go.transform.parent.gameObject.layer)) != 0);
     }
 
-    private void OnCollisionEnter(Collision collision)
+    private bool TryGetColorFromObject(GameObject obj, out Color color)
     {
-        LightSource ls = collision.collider.GetComponent<LightSource>() ?? collision.collider.GetComponentInParent<LightSource>();
-        if (ls != null)
+        color = Color.white; if (obj == null) return false;
+        var gr = obj.GetComponent<GodRayBeam>() ?? obj.GetComponentInParent<GodRayBeam>() ?? obj.GetComponentInChildren<GodRayBeam>();
+        if (gr != null) { color = gr.CurrentColor; return true; }
+        var ls = obj.GetComponent<LightSource>() ?? obj.GetComponentInParent<LightSource>() ?? obj.GetComponentInChildren<LightSource>();
+        if (ls != null) { color = ls.LightColor; return true; }
+        var l = obj.GetComponent<Light>() ?? obj.GetComponentInParent<Light>() ?? obj.GetComponentInChildren<Light>();
+        if (l != null) { color = l.color; return true; }
+        var r = obj.GetComponent<Renderer>() ?? obj.GetComponentInParent<Renderer>() ?? obj.GetComponentInChildren<Renderer>();
+        if (r != null && r.sharedMaterial != null)
         {
-            activeLights.Add(ls);
+            var m = r.sharedMaterial;
+            if (m.HasProperty("_TintColor")) { color = m.GetColor("_TintColor"); return true; }
+            if (m.HasProperty("_BaseColor")) { color = m.GetColor("_BaseColor"); return true; }
+            if (m.HasProperty("_Color")) { color = m.GetColor("_Color"); return true; }
+            color = m.color; return true;
         }
+        return false;
     }
-
-    private void OnCollisionExit(Collision collision)
-    {
-        LightSource ls = collision.collider.GetComponent<LightSource>() ?? collision.collider.GetComponentInParent<LightSource>();
-        if (ls != null)
-        {
-            activeLights.Remove(ls);
-        }
-    }
-
-    #endregion
 
     private void UpdateEmissionColor()
     {
-        Color incomingColor = Color.white;
-        foreach (var l in activeLights)
+        Color incoming = Color.white; bool fromLightLayer = false;
+        if (lightLayerHits.Count > 0)
         {
-            if (l != null)
-            {
-                incomingColor = l.LightColor;
-                break;
-            }
+            foreach (var kvp in lightLayerHits)
+                if (kvp.Key != null && kvp.Key.gameObject.activeInHierarchy) { incoming = TryGetColorFromObject(kvp.Key.gameObject, out Color c) ? c : kvp.Value; fromLightLayer = true; break; }
         }
+        if (!fromLightLayer && activeSourceGodRay != null) incoming = activeSourceGodRay.CurrentColor;
+        else if (!fromLightLayer) foreach (var l in activeLights) if (l != null) { incoming = l.LightColor; break; }
 
-        switch (colorMode)
-        {
-            case PrismColorMode.PrismOverrides:
-                activeEmittedColor = prismColor != Color.white ? prismColor : incomingColor;
-                break;
-            case PrismColorMode.LightColorDirect:
-                activeEmittedColor = incomingColor;
-                break;
-            case PrismColorMode.Multiply:
-                activeEmittedColor = new Color(incomingColor.r * prismColor.r, incomingColor.g * prismColor.g, incomingColor.b * prismColor.b, 1f);
-                break;
-            case PrismColorMode.PrismTint:
-            default:
-                if (prismColor == Color.white) activeEmittedColor = incomingColor;
-                else if (incomingColor == Color.white) activeEmittedColor = prismColor;
-                else activeEmittedColor = Color.Lerp(incomingColor, prismColor, 0.7f);
-                break;
-        }
+        if (fromLightLayer || colorMode == PrismColorMode.LightColorDirect) activeEmittedColor = incoming;
+        else if (colorMode == PrismColorMode.PrismOverrides) activeEmittedColor = prismColor != Color.white ? prismColor : incoming;
+        else if (colorMode == PrismColorMode.Multiply) activeEmittedColor = new Color(incoming.r * prismColor.r, incoming.g * prismColor.g, incoming.b * prismColor.b, 1f);
+        else activeEmittedColor = (prismColor == Color.white) ? incoming : ((incoming == Color.white) ? prismColor : Color.Lerp(incoming, prismColor, 0.7f));
     }
 
     private void UpdateBeamAndShadows()
     {
         Vector3 origin = emissionPoint != null ? emissionPoint.position : transform.position;
-        Vector3 direction = emissionPoint != null ? emissionPoint.TransformDirection(emissionDirection).normalized : transform.forward;
+        Vector3 dir = emissionPoint != null ? emissionPoint.TransformDirection(emissionDirection).normalized : transform.forward;
+        float hitDist = customizeGodRaySize ? godRayLength : beamRange; Vector3 endPoint = origin + dir * hitDist;
 
-        float hitDistance = beamRange;
-        Vector3 endPoint = origin + direction * beamRange;
+        if (Physics.Raycast(new Ray(origin, dir), out RaycastHit wallHit, hitDist, obstacleLayers, QueryTriggerInteraction.Ignore))
+            if (wallHit.collider.GetComponentInParent<SombraController>() == null) { hitDist = wallHit.distance; endPoint = wallHit.point; }
 
-        // 1. Raycast para encontrar paredes sólidas (ignorando triggers e sombras)
-        Ray ray = new Ray(origin, direction);
-        if (Physics.Raycast(ray, out RaycastHit wallHit, beamRange, obstacleLayers, QueryTriggerInteraction.Ignore))
-        {
-            // Se o obstáculo atingido NÃO for uma sombra, limita o feixe na parede
-            if (wallHit.collider.GetComponentInParent<SombraController>() == null)
-            {
-                hitDistance = wallHit.distance;
-                endPoint = wallHit.point;
-            }
-        }
-
-        // 2. Detecção precisa de sombras ao longo do feixe via SphereCastAll (incluindo Triggers)
         HashSet<SombraController> newlyHit = new HashSet<SombraController>();
-        RaycastHit[] hits = Physics.SphereCastAll(origin, beamRadius, direction, hitDistance, ~0, QueryTriggerInteraction.Collide);
-
-        foreach (var hit in hits)
+        foreach (var hit in Physics.SphereCastAll(origin, beamRadius, dir, hitDist, ~0, QueryTriggerInteraction.Collide))
         {
             if (hit.collider == null || hit.collider.transform.IsChildOf(transform)) continue;
-
-            SombraController sombra = hit.collider.GetComponentInParent<SombraController>();
-            if (sombra != null && sombra.gameObject.activeInHierarchy)
-            {
-                // Garante que a sombra está estritamente à frente do prisma na direção do feixe
-                Vector3 toCenter = sombra.transform.position - origin;
-                float dot = Vector3.Dot(direction, toCenter.normalized);
-
-                // Se o centro da sombra ou o ponto de impacto estiver na frente do feixe
-                if (dot > 0.05f || hit.distance > 0.01f)
-                {
-                    newlyHit.Add(sombra);
-                    sombra.SetIlluminated(true, this);
-                }
-            }
+            SombraController s = hit.collider.GetComponentInParent<SombraController>();
+            if (s != null && s.gameObject.activeInHierarchy && (Vector3.Dot(dir, (s.transform.position - origin).normalized) > 0.05f || hit.distance > 0.01f))
+            { newlyHit.Add(s); s.SetIlluminated(true, this); }
         }
 
-        // Sombras que deixaram de ser atingidas pelo feixe de luz
         toRemoveSombras.Clear();
-        foreach (var s in currentlyHitSombras)
+        foreach (var s in currentlyHitSombras) if (!newlyHit.Contains(s)) toRemoveSombras.Add(s);
+        foreach (var s in toRemoveSombras) { if (s != null) s.SetIlluminated(false, this); currentlyHitSombras.Remove(s); }
+        foreach (var s in newlyHit) currentlyHitSombras.Add(s);
+
+        if (emitGodRay)
         {
-            if (!newlyHit.Contains(s))
+            EnsureGodRayInstance();
+            if (prismGodRay != null)
             {
-                toRemoveSombras.Add(s);
+                if (!prismGodRay.gameObject.activeSelf) prismGodRay.gameObject.SetActive(true);
+                if (customizeGodRaySize) prismGodRay.SetDimensions(godRayTopRadius, godRayBottomRadius, godRayLength);
+                prismGodRay.transform.position = origin; prismGodRay.transform.rotation = Quaternion.FromToRotation(Vector3.down, dir);
+                prismGodRay.SetColor(activeEmittedColor); prismGodRay.UpdateHeightWithRaycast();
             }
         }
 
-        foreach (var s in toRemoveSombras)
-        {
-            if (s != null) s.SetIlluminated(false, this);
-            currentlyHitSombras.Remove(s);
-        }
-
-        foreach (var s in newlyHit)
-        {
-            currentlyHitSombras.Add(s);
-        }
-
-        // 3. Atualiza LineRenderer visual
         if (lineRenderer != null)
         {
-            lineRenderer.enabled = true;
-            lineRenderer.SetPosition(0, origin);
-            lineRenderer.SetPosition(1, endPoint);
-
-            Gradient gradient = new Gradient();
-            gradient.SetKeys(
-                new GradientColorKey[] { new GradientColorKey(activeEmittedColor, 0.0f), new GradientColorKey(activeEmittedColor, 1.0f) },
-                new GradientAlphaKey[] { new GradientAlphaKey(0.85f, 0.0f), new GradientAlphaKey(0.4f, 1.0f) }
-            );
-            lineRenderer.colorGradient = gradient;
+            lineRenderer.enabled = !emitGodRay || useLineRendererWithGodRay;
+            if (lineRenderer.enabled)
+            {
+                lineRenderer.SetPosition(0, origin); lineRenderer.SetPosition(1, endPoint);
+                lineRenderer.colorGradient = new Gradient { colorKeys = new[] { new GradientColorKey(activeEmittedColor, 0f), new GradientColorKey(activeEmittedColor, 1f) }, alphaKeys = new[] { new GradientAlphaKey(0.85f, 0f), new GradientAlphaKey(0.4f, 1f) } };
+            }
         }
-
-        // 4. Atualiza Spotlight
-        if (spotlight != null)
-        {
-            spotlight.enabled = true;
-            spotlight.color = activeEmittedColor;
-            spotlight.range = hitDistance + 2f;
-            spotlight.transform.rotation = Quaternion.LookRotation(direction);
-        }
+        if (spotlight != null) { spotlight.enabled = true; spotlight.color = activeEmittedColor; spotlight.range = hitDist + 2f; spotlight.transform.rotation = Quaternion.LookRotation(dir); }
     }
 
-    /// <summary>
-    /// Desliga o feixe e reativa imediatamente todas as sombras atingidas.
-    /// </summary>
     public void StopEmissionImmediately()
     {
         isEmitting = false;
-
-        if (lineRenderer != null)
-        {
-            lineRenderer.enabled = false;
-        }
-
-        if (spotlight != null)
-        {
-            spotlight.enabled = false;
-        }
-
-        // Libera imediatamente todas as sombras
-        foreach (var sombra in currentlyHitSombras)
-        {
-            if (sombra != null)
-            {
-                sombra.SetIlluminated(false, this);
-            }
-        }
+        if (prismGodRay != null) prismGodRay.gameObject.SetActive(false);
+        if (lineRenderer != null) lineRenderer.enabled = false;
+        if (spotlight != null) spotlight.enabled = false;
+        foreach (var s in currentlyHitSombras) if (s != null) s.SetIlluminated(false, this);
         currentlyHitSombras.Clear();
     }
 
-    private void OnDisable()
+    public void RegisterDirectGodRay(GodRayBeam gr)
     {
-        activeLights.Clear();
-        StopEmissionImmediately();
+        if (gr == null || gr.transform.IsChildOf(transform)) return;
+        LightSource ls = gr.GetComponent<LightSource>() ?? gr.gameObject.AddComponent<LightSource>();
+        activeLights.Add(ls); activeSourceGodRay = gr;
     }
+
+    public void UnregisterDirectGodRay(GodRayBeam gr)
+    {
+        if (gr == null) return;
+        LightSource ls = gr.GetComponent<LightSource>(); if (ls != null) activeLights.Remove(ls);
+        if (activeSourceGodRay == gr) { activeSourceGodRay = null; RefreshSourceGodRay(); }
+    }
+
+    private void RegisterLight(Collider col)
+    {
+        if (col == null || col.transform.IsChildOf(transform)) return;
+        if (IsLightLayer(col.gameObject)) lightLayerHits[col] = TryGetColorFromObject(col.gameObject, out Color c) ? c : Color.white;
+        LightSource ls = col.GetComponent<LightSource>() ?? col.GetComponentInParent<LightSource>();
+        GodRayBeam gr = col.GetComponent<GodRayBeam>() ?? col.GetComponentInParent<GodRayBeam>();
+        if (ls != null && !ls.transform.IsChildOf(transform)) { activeLights.Add(ls); if (gr == null) gr = ls.GetComponent<GodRayBeam>() ?? ls.GetComponentInParent<GodRayBeam>(); }
+        else if (gr != null && !gr.transform.IsChildOf(transform)) { LightSource gLs = gr.GetComponent<LightSource>() ?? gr.gameObject.AddComponent<LightSource>(); activeLights.Add(gLs); }
+        if (gr != null && !gr.transform.IsChildOf(transform)) activeSourceGodRay = gr;
+    }
+
+    private void UnregisterLight(Collider col)
+    {
+        if (col == null) return;
+        lightLayerHits.Remove(col);
+        LightSource ls = col.GetComponent<LightSource>() ?? col.GetComponentInParent<LightSource>();
+        GodRayBeam gr = col.GetComponent<GodRayBeam>() ?? col.GetComponentInParent<GodRayBeam>();
+        if (ls != null) activeLights.Remove(ls);
+        if (gr != null && gr == activeSourceGodRay) { activeSourceGodRay = null; RefreshSourceGodRay(); }
+        if (activeLights.Count == 0 && lightLayerHits.Count == 0) activeSourceGodRay = null;
+    }
+
+    private void OnTriggerEnter(Collider o) => RegisterLight(o);
+    private void OnTriggerExit(Collider o) => UnregisterLight(o);
+    private void OnCollisionEnter(Collision c) => RegisterLight(c.collider);
+    private void OnCollisionExit(Collision c) => UnregisterLight(c.collider);
+    private void OnDisable() { lightLayerHits.Clear(); activeLights.Clear(); StopEmissionImmediately(); }
 
     private void OnDrawGizmosSelected()
     {
         Vector3 origin = emissionPoint != null ? emissionPoint.position : transform.position;
-        Vector3 direction = emissionPoint != null ? emissionPoint.TransformDirection(emissionDirection).normalized : transform.forward;
-
+        Vector3 dir = emissionPoint != null ? emissionPoint.TransformDirection(emissionDirection).normalized : transform.forward;
         Gizmos.color = isEmitting ? activeEmittedColor : prismColor;
-        Gizmos.DrawRay(origin, direction * 3f);
-        Gizmos.DrawWireSphere(origin, beamRadius);
+        Gizmos.DrawRay(origin, dir * 3f); Gizmos.DrawWireSphere(origin, beamRadius);
     }
 }
