@@ -2,8 +2,8 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 
 /// <summary>
-/// Controlador de movimentação WASD em visão isométrica e interação de pegar/soltar objetos com [E].
-/// Utiliza o novo Input System do Unity via Keyboard.current.
+/// Controlador de movimentação WASD em visão isométrica, pegar/soltar objetos com [E]
+/// e rotação fina de prismas/tochas segurados com [Q] e [R].
 /// </summary>
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
@@ -13,21 +13,24 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float rotationSpeed = 12.0f;
     [SerializeField] private float gravity = 20.0f;
 
-    [Header("Interação (Pegar / Soltar)")]
+    [Header("Interação (Pegar / Soltar / Rotacionar)")]
     [SerializeField] private float interactionRadius = 2.5f;
     [SerializeField] private Transform holdPoint;
-    [SerializeField] private float dropForwardForce = 1.5f;
+    [SerializeField] private float dropForwardForce = 0f;
+    [SerializeField] private float heldObjectRotateSpeed = 110f;
 
     private CharacterController characterController;
     private float verticalVelocity = 0f;
     private PickableObject heldObject = null;
     private PickableObject nearestObject = null;
+    private BlackFireBrazier nearestBrazier = null;
+
+    public PickableObject HeldObject => heldObject;
 
     private void Awake()
     {
         characterController = GetComponent<CharacterController>();
 
-        // Cria o ponto de segurar à frente da cápsula caso não tenha sido atribuído no Inspector
         if (holdPoint == null)
         {
             GameObject hp = new GameObject("HoldPoint");
@@ -41,6 +44,7 @@ public class PlayerController : MonoBehaviour
     {
         HandleMovement();
         CheckInteractionProximity();
+        HandleHeldObjectRotation();
         HandleInteractionInput();
     }
 
@@ -52,7 +56,6 @@ public class PlayerController : MonoBehaviour
         float h = 0f;
         float v = 0f;
 
-        // Leitura WASD e Setas pelo novo Input System
         if (keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed) h -= 1f;
         if (keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed) h += 1f;
         if (keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed) v += 1f;
@@ -60,13 +63,11 @@ public class PlayerController : MonoBehaviour
 
         Vector3 inputDir = new Vector3(h, 0f, v).normalized;
 
-        // Converte o input para a perspectiva da câmera isométrica (45 graus de rotação)
         Vector3 moveDir = Vector3.zero;
         if (inputDir.magnitude >= 0.1f)
         {
             float targetAngle = Mathf.Atan2(inputDir.x, inputDir.z) * Mathf.Rad2Deg;
 
-            // Se existir câmera, alinha com a rotação Y da câmera (45° na isométrica)
             if (Camera.main != null)
             {
                 targetAngle += Camera.main.transform.eulerAngles.y;
@@ -75,12 +76,10 @@ public class PlayerController : MonoBehaviour
             Vector3 worldDirection = Quaternion.Euler(0f, targetAngle, 0f) * Vector3.forward;
             moveDir = worldDirection.normalized;
 
-            // Rotação suave da cápsula em direção ao movimento
             Quaternion targetRotation = Quaternion.LookRotation(worldDirection);
             transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
         }
 
-        // Gravidade
         if (characterController.isGrounded)
         {
             verticalVelocity = -0.5f;
@@ -98,7 +97,27 @@ public class PlayerController : MonoBehaviour
 
     private void CheckInteractionProximity()
     {
-        // Se já estiver segurando um objeto, não precisa destacar outros
+        Collider[] hitColliders = Physics.OverlapSphere(transform.position, interactionRadius, ~0, QueryTriggerInteraction.Collide);
+
+        // Verifica braseiro próximo para acendimento direto com [E] caso esteja segurando tocha apagada
+        BlackFireBrazier closestBrazier = null;
+        float minBrazierDist = float.MaxValue;
+        foreach (var col in hitColliders)
+        {
+            if (col == null) continue;
+            BlackFireBrazier brazier = col.GetComponent<BlackFireBrazier>() ?? col.GetComponentInParent<BlackFireBrazier>();
+            if (brazier != null)
+            {
+                float d = Vector3.Distance(transform.position, brazier.transform.position);
+                if (d < minBrazierDist)
+                {
+                    minBrazierDist = d;
+                    closestBrazier = brazier;
+                }
+            }
+        }
+        nearestBrazier = closestBrazier;
+
         if (heldObject != null)
         {
             if (nearestObject != null)
@@ -109,13 +128,13 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
-        Collider[] hitColliders = Physics.OverlapSphere(transform.position, interactionRadius);
         PickableObject closest = null;
         float minDistance = float.MaxValue;
 
         foreach (var col in hitColliders)
         {
-            PickableObject pickable = col.GetComponent<PickableObject>();
+            if (col == null) continue;
+            PickableObject pickable = col.GetComponent<PickableObject>() ?? col.GetComponentInParent<PickableObject>();
             if (pickable != null && !pickable.IsPickedUp)
             {
                 float dist = Vector3.Distance(transform.position, pickable.transform.position);
@@ -127,7 +146,6 @@ public class PlayerController : MonoBehaviour
             }
         }
 
-        // Se mudou o objeto mais próximo em alcance
         if (closest != nearestObject)
         {
             if (nearestObject != null)
@@ -140,24 +158,51 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    private void HandleHeldObjectRotation()
+    {
+        if (heldObject == null) return;
+
+        Keyboard keyboard = Keyboard.current;
+        if (keyboard == null) return;
+
+        float rotateInput = 0f;
+        if (keyboard.qKey.isPressed) rotateInput -= 1f;
+        if (keyboard.rKey.isPressed) rotateInput += 1f;
+
+        if (Mathf.Abs(rotateInput) > 0.01f)
+        {
+            heldObject.RotateY(rotateInput * heldObjectRotateSpeed * Time.deltaTime);
+        }
+    }
+
     private void HandleInteractionInput()
     {
         Keyboard keyboard = Keyboard.current;
         if (keyboard == null) return;
 
-        // Tecla E via novo Input System (wasPressedThisFrame)
         if (keyboard.eKey.wasPressedThisFrame)
         {
             if (heldObject != null)
             {
-                // Soltar o objeto
-                Vector3 throwForce = transform.forward * dropForwardForce + Vector3.up * 0.5f;
+                // Se está segurando tocha apagada ao lado de um braseiro, acende a tocha antes de soltar
+                if (nearestBrazier != null)
+                {
+                    TorchController heldTorch = heldObject.GetComponent<TorchController>();
+                    if (heldTorch != null && !heldTorch.IsLit)
+                    {
+                        nearestBrazier.TryIgniteTorch(heldTorch);
+                        return;
+                    }
+                }
+
+                Vector3 throwForce = dropForwardForce > 0.001f
+                    ? transform.forward * dropForwardForce
+                    : Vector3.zero;
                 heldObject.Drop(throwForce);
                 heldObject = null;
             }
             else if (nearestObject != null)
             {
-                // Pegar o objeto
                 heldObject = nearestObject;
                 nearestObject = null;
                 heldObject.PickUp(holdPoint);
@@ -167,7 +212,6 @@ public class PlayerController : MonoBehaviour
 
     private void OnDrawGizmosSelected()
     {
-        // Desenha raio de alcance de interação no Scene View
         Gizmos.color = Color.yellow;
         Gizmos.DrawWireSphere(transform.position, interactionRadius);
     }

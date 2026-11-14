@@ -1,4 +1,6 @@
 ﻿<Solution>
+  <Project Path="Albedo.Runtime.csproj" />
   <Project Path="Assembly-CSharp.csproj" />
+  <Project Path="Albedo.EditModeTests.csproj" />
   <Project Path="Assembly-CSharp-Editor.csproj" />
 </Solution>
