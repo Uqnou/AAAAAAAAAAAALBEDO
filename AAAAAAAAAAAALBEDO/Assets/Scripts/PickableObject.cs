@@ -1,14 +1,26 @@
 using UnityEngine;
 
 /// <summary>
-/// Componente para qualquer objeto que possa ser pego e solto com a tecla [E].
+/// Componente para qualquer objeto que possa ser pego, rotacionado ([Q]/[R]) e solto com a tecla [E].
+/// Preserva a inclinação original de malhas FBX ao segurar e girar no eixo Y global.
 /// </summary>
 [RequireComponent(typeof(Rigidbody))]
 public class PickableObject : MonoBehaviour
 {
+    [Header("Segurar e Posicionar")]
+    [Tooltip("Trava rotação X/Z ao soltar para manter prismas e tochas na posição apontada.")]
+    [SerializeField] private bool lockTiltWhenDropped = true;
+
+    [Tooltip("Zera velocidades ao soltar para o objeto não sair rolando após mirar.")]
+    [SerializeField] private bool settleOnDrop = true;
+
     private Rigidbody rb;
     private Collider col;
     private InteractionPrompt prompt;
+    private Quaternion uprightTiltOffset = Quaternion.identity;
+    private float holdYawOffset = 0f;
+    private Transform currentHoldPoint;
+    private bool tiltCaptured = false;
 
     public bool IsPickedUp { get; private set; } = false;
 
@@ -16,13 +28,39 @@ public class PickableObject : MonoBehaviour
     {
         rb = GetComponent<Rigidbody>();
         col = GetComponent<Collider>();
+        CaptureInitialTilt();
 
-        // Adiciona ou obtém o indicador de interação [E]
+        if (lockTiltWhenDropped && rb != null)
+        {
+            rb.constraints |= RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
+        }
+
         prompt = GetComponent<InteractionPrompt>();
         if (prompt == null)
         {
             prompt = gameObject.AddComponent<InteractionPrompt>();
         }
+
+        if (Application.isPlaying)
+        {
+            if (gameObject.name.StartsWith("Prisma", System.StringComparison.OrdinalIgnoreCase) && GetComponent<PrismaController>() == null)
+            {
+                gameObject.AddComponent<PrismaController>();
+            }
+            else if (string.Equals(gameObject.name, "Cylinder.003", System.StringComparison.OrdinalIgnoreCase) && GetComponent<TorchController>() == null)
+            {
+                gameObject.AddComponent<TorchController>();
+            }
+        }
+    }
+
+    private void CaptureInitialTilt()
+    {
+        if (tiltCaptured) return;
+        tiltCaptured = true;
+
+        float currentYaw = transform.rotation.eulerAngles.y;
+        uprightTiltOffset = Quaternion.Inverse(Quaternion.Euler(0f, currentYaw, 0f)) * transform.rotation;
     }
 
     public void OnPlayerApproach()
@@ -43,31 +81,87 @@ public class PickableObject : MonoBehaviour
 
     public void PickUp(Transform holdPoint)
     {
+        CaptureInitialTilt();
+        currentHoldPoint = holdPoint;
+        holdYawOffset = 0f;
         IsPickedUp = true;
+
         if (prompt != null)
             prompt.Hide();
 
-        // Desativa física para seguir as mãos/frente do personagem, mantendo colisões/triggers ativas
-        rb.isKinematic = true;
-        rb.detectCollisions = true;
+        if (rb != null)
+        {
+            if (!rb.isKinematic)
+            {
+                rb.linearVelocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+            }
+            rb.isKinematic = true;
+            rb.detectCollisions = true;
+        }
 
         transform.SetParent(holdPoint);
         transform.localPosition = Vector3.zero;
-        transform.localRotation = Quaternion.identity;
+        ApplyHoldRotation();
+    }
+
+    /// <summary>
+    /// Rotaciona o objeto no eixo vertical (Y global) enquanto estiver segurado (teclas Q / R).
+    /// </summary>
+    public void RotateY(float deltaDegrees)
+    {
+        if (IsPickedUp && currentHoldPoint != null)
+        {
+            holdYawOffset += deltaDegrees;
+            ApplyHoldRotation();
+        }
+        else
+        {
+            transform.Rotate(Vector3.up, deltaDegrees, Space.World);
+        }
+    }
+
+    private void LateUpdate()
+    {
+        if (IsPickedUp && currentHoldPoint != null)
+        {
+            ApplyHoldRotation();
+        }
+    }
+
+    private void ApplyHoldRotation()
+    {
+        if (currentHoldPoint == null) return;
+        float baseYaw = currentHoldPoint.eulerAngles.y;
+        transform.rotation = Quaternion.Euler(0f, baseYaw + holdYawOffset, 0f) * uprightTiltOffset;
     }
 
     public void Drop(Vector3 throwForce)
     {
         IsPickedUp = false;
+        currentHoldPoint = null;
         transform.SetParent(null);
 
-        // Reativa física e gravidade
-        rb.isKinematic = false;
-        rb.detectCollisions = true;
-
-        if (throwForce != Vector3.zero)
+        if (rb != null)
         {
-            rb.AddForce(throwForce, ForceMode.Impulse);
+            if (lockTiltWhenDropped)
+            {
+                rb.constraints |= RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
+            }
+
+            rb.isKinematic = false;
+            rb.detectCollisions = true;
+
+            if (settleOnDrop || throwForce == Vector3.zero)
+            {
+                rb.linearVelocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+            }
+
+            if (throwForce != Vector3.zero && !settleOnDrop)
+            {
+                rb.AddForce(throwForce, ForceMode.Impulse);
+            }
         }
     }
 }

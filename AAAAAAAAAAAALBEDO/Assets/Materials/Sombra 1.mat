@@ -25,10 +25,14 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _Cutoff: 0.518
-    - _VoronoiScale: 0.85
+    - _Cutoff: 0.72
+    - _FlowSpeed: 0.65
+    - _MinAlpha: 0.55
+    - _VoronoiScale: 1.25
+    - _WaveAmplitude: 0.045
+    - _WaveSpeed: 1.8
     m_Colors:
     - _NoiseOffset: {r: 0, g: 0, b: 0.2, a: 0}
-    - _ShadowColor: {r: 0.002, g: 0.002, b: 0.002, a: 0.85}
+    - _ShadowColor: {r: 0.002, g: 0.002, b: 0.002, a: 0.92}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

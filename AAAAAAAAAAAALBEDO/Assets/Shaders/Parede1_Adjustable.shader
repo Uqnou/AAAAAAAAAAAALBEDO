@@ -2,21 +2,24 @@ Shader "Custom/URP_Parede1_Adjustable"
 {
     Properties
     {
-        _LightColor ("Light Color", Color) = (1.0, 1.0, 1.0, 1.0)
-        _DarkColor ("Dark Color", Color) = (0.0, 0.0, 0.0, 1.0)
+        _LightColor ("Dot Tint Color", Color) = (1.0, 1.0, 1.0, 1.0)
+        _DarkColor ("Dark Background Color", Color) = (0.0, 0.0, 0.0, 1.0)
         _Scale ("Scale Factor", Float) = 0.07
         _AspectRatio ("Aspect Ratio (X/Y)", Float) = 0.55
         _VoronoiScale ("Voronoi Scale", Float) = 5.0
         _RampStart ("Ramp Start", Float) = 0.2681818
         _RampEnd ("Ramp End", Float) = 0.3000000
         _LightIntensityScale ("Light Sensitivity Scale", Float) = 1.0
+        _MainLightWeight ("Directional Light Weight", Range(0.0, 1.0)) = 0.0
+        _UnityLightWeight ("Scene Light Weight", Range(0.0, 2.0)) = 0.45
+        _BeamIntensity ("Prism/GodRay Beam Weight", Range(0.0, 3.0)) = 1.15
     }
 
     SubShader
     {
-        Tags 
-        { 
-            "RenderType" = "Opaque" 
+        Tags
+        {
+            "RenderType" = "Opaque"
             "RenderPipeline" = "UniversalPipeline"
             "Queue" = "Geometry"
         }
@@ -31,12 +34,12 @@ Shader "Custom/URP_Parede1_Adjustable"
             #pragma vertex vert
             #pragma fragment frag
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE
-            #pragma multi_compile_fragment _ _ADDITIONAL_LIGHTS
+            #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
             #pragma multi_compile_fragment _ _ADDITIONAL_LIGHT_SHADOWS
+            #pragma multi_compile _ _CLUSTER_LIGHT_LOOP
             #pragma multi_compile_fragment _ _SHADOWS_SOFT
 
-            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
-            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+            #include "Assets/Shaders/AlbedoHalftoneLighting.hlsl"
 
             struct Attributes
             {
@@ -61,6 +64,9 @@ Shader "Custom/URP_Parede1_Adjustable"
                 float _RampStart;
                 float _RampEnd;
                 float _LightIntensityScale;
+                float _MainLightWeight;
+                float _UnityLightWeight;
+                float _BeamIntensity;
             CBUFFER_END
 
             Varyings vert(Attributes input)
@@ -73,59 +79,39 @@ Shader "Custom/URP_Parede1_Adjustable"
                 output.positionWS = vertexInputs.positionWS;
                 output.normalWS = normalInputs.normalWS;
                 output.screenPos = ComputeScreenPos(vertexInputs.positionCS);
-
                 return output;
             }
 
             half4 frag(Varyings input) : SV_Target
             {
                 float3 normalWS = normalize(input.normalWS);
-
-                // Diffuse lighting intensity from scene lights
-                Light mainLight = GetMainLight(TransformWorldToShadowCoord(input.positionWS));
-                float totalLight = saturate(dot(normalWS, mainLight.direction)) * mainLight.shadowAttenuation;
-
-                #if defined(_ADDITIONAL_LIGHTS)
-                uint numAdditionalLights = GetAdditionalLightsCount();
-                for (uint i = 0u; i < numAdditionalLights; ++i)
-                {
-                    Light addLight = GetAdditionalLight(i, input.positionWS);
-                    float NdotL = saturate(dot(normalWS, addLight.direction));
-                    totalLight += NdotL * addLight.distanceAttenuation * addLight.shadowAttenuation;
-                }
-                #endif
-
-                // Radiance reaching Shader to RGB node
-                float radiance = totalLight * 0.8 * _LightIntensityScale;
-
-                // Screen coordinates (Window Coordinates in Blender)
                 float2 screenUV = input.screenPos.xy / max(input.screenPos.w, 0.00001);
 
-                // Blender Mapping (Texture Mode): divides UV by Vector Math scale
-                // scale = Vector Math([0.55, 1.0, 1.0] * Scale) = [0.55 * Scale, Scale, Scale]
-                // p.x = (screenUV.x / (0.55 * _Scale)) * _VoronoiScale;
-                // p.y = (screenUV.y / _Scale) * _VoronoiScale;
-                // p.z = 0.0;
+                half3 lightColor;
+                float lightStrength = EvaluateAlbedoWallLight(
+                    input.positionWS,
+                    normalWS,
+                    input.positionCS,
+                    _MainLightWeight,
+                    _UnityLightWeight,
+                    _BeamIntensity,
+                    lightColor);
+
+                // Parede 1: 100% preta no escuro; ao receber luz, abre bolinhas suaves mais fortes/sensíveis
+                float lum = saturate(lightStrength * _LightIntensityScale * 1.25);
+
                 float2 uv = float2(screenUV.x / max(_AspectRatio * _Scale, 0.0001), screenUV.y / max(_Scale, 0.0001));
                 float2 p = uv * _VoronoiScale;
+                float dCenter = length(frac(p) - 0.5);
 
-                // Blender 3D Voronoi F1 Euclidean with Randomness = 0.0:
-                // Lattice points are at (gx + 0.5, gy + 0.5, gz + 0.5)
-                // With p.z = 0, gz = 0 -> (p.z - 0.5)^2 = 0.25
-                float2 fractP = frac(p);
-                float voronoiDist = sqrt(dot(fractP - 0.5, fractP - 0.5) + 0.25);
+                float maxDotRadius = 0.44;
+                float dotRadius = lum * maxDotRadius;
+                float softness = clamp((_RampEnd - _RampStart) * 0.9, 0.015, 0.12);
+                float delta = max(fwidth(dCenter), softness);
 
-                // Blender Node Math Chain:
-                // Math.001 = 1.0 - voronoiDist
-                // Math.002 = radiance - Math.001 = radiance + voronoiDist - 1.0
-                // Math.003 = Math.002 + 0.5 = radiance + voronoiDist - 0.5
-                float factor = radiance + voronoiDist - 0.5;
-
-                // Blender Color Ramp: stop 0.2681818 -> Black, stop 0.3000000 -> White
-                float delta = fwidth(factor);
-                float ramp = smoothstep(_RampStart, _RampEnd, factor);
-
-                half3 col = lerp(_DarkColor.rgb, _LightColor.rgb, ramp);
+                float isDot = smoothstep(0.008, 0.03, lum) * (1.0 - smoothstep(dotRadius - delta, dotRadius + delta, dCenter));
+                half3 dotCol = _LightColor.rgb * lightColor;
+                half3 col = lerp(_DarkColor.rgb, dotCol, (half)isDot);
                 return half4(col, 1.0);
             }
             ENDHLSL

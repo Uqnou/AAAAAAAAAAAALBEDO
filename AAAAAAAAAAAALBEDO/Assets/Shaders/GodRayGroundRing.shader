@@ -8,6 +8,8 @@ Shader "Custom/GodRayGroundRing"
         _Feather ("Edge Feather", Range(0.01, 0.5)) = 0.15
         _PulseSpeed ("Pulse Speed", Range(0.0, 10.0)) = 2.0
         _PulseAmount ("Pulse Amount", Range(0.0, 1.0)) = 0.25
+        _BaseAlpha ("Base Alpha", Range(0.0, 1.0)) = 0.55
+        _WhiteAlphaScale ("White Ring Transparency Scale", Range(0.05, 1.0)) = 0.42
     }
 
     SubShader
@@ -56,6 +58,8 @@ Shader "Custom/GodRayGroundRing"
                 float _Feather;
                 float _PulseSpeed;
                 float _PulseAmount;
+                float _BaseAlpha;
+                float _WhiteAlphaScale;
             CBUFFER_END
 
             Varyings vert(Attributes input)
@@ -76,8 +80,12 @@ Shader "Custom/GodRayGroundRing"
                 float ringAlpha = outerFade * innerFade;
 
                 float innerDisc = (1.0 - smoothstep(0.0, 0.95, dist)) * 0.15;
-                float totalAlpha = saturate(ringAlpha + innerDisc);
+                half maxC = max(_TintColor.r, max(_TintColor.g, _TintColor.b));
+                half minC = min(_TintColor.r, min(_TintColor.g, _TintColor.b));
+                half whiteness = saturate(1.0h - (maxC - minC) / max(maxC, 0.001h));
+                float alphaScale = _BaseAlpha * lerp(1.0, _WhiteAlphaScale, (float)whiteness);
 
+                float totalAlpha = saturate(ringAlpha + innerDisc) * alphaScale;
                 float pulse = 1.0 + sin(_Time.y * _PulseSpeed) * _PulseAmount;
 
                 half3 finalColor = _TintColor.rgb * _Intensity * pulse * totalAlpha;

@@ -7,7 +7,8 @@ Shader "Custom/GodRayVolumetric"
         _RimPower ("Rim Softness Power", Range(0.1, 8.0)) = 2.0
         _VerticalFalloff ("Vertical Falloff Exponent", Range(0.2, 5.0)) = 1.2
         _DepthFadeDistance ("Depth Fade Distance", Range(0.01, 3.0)) = 0.6
-        _BaseAlpha ("Base Alpha", Range(0.0, 1.0)) = 0.7
+        _BaseAlpha ("Base Alpha", Range(0.0, 1.0)) = 0.32
+        _WhiteAlphaScale ("White Light Transparency Scale", Range(0.1, 1.0)) = 0.65
     }
 
     SubShader
@@ -61,6 +62,7 @@ Shader "Custom/GodRayVolumetric"
                 float _VerticalFalloff;
                 float _DepthFadeDistance;
                 float _BaseAlpha;
+                float _WhiteAlphaScale;
             CBUFFER_END
 
             Varyings vert(Attributes input)
@@ -97,8 +99,13 @@ Shader "Custom/GodRayVolumetric"
                 float depthDiff = max(0.0, sceneLinearDepth - objectLinearDepth);
                 float depthFade = saturate(depthDiff / max(_DepthFadeDistance, 0.001));
 
-                // 4. Combinação Final
-                float combinedAlpha = verticalGrad * rim * depthFade * _BaseAlpha;
+                // 4. Combinação Final (suaviza mais quando a cor é branca/neutra)
+                half maxC = max(_TintColor.r, max(_TintColor.g, _TintColor.b));
+                half minC = min(_TintColor.r, min(_TintColor.g, _TintColor.b));
+                half whiteness = saturate(1.0h - (maxC - minC) / max(maxC, 0.001h));
+                float alphaScale = lerp(1.0, _WhiteAlphaScale, (float)whiteness);
+
+                float combinedAlpha = verticalGrad * rim * depthFade * _BaseAlpha * alphaScale;
                 half3 finalColor = _TintColor.rgb * _Intensity * combinedAlpha;
 
                 return half4(finalColor, combinedAlpha);

@@ -47,6 +47,7 @@ public class GodRayBeam : MonoBehaviour
     [SerializeField] private LayerMask groundLayerMask = ~0;
     [SerializeField] private bool continuousHeightCheck = false, matchGroundSlopeProjection = true;
     [SerializeField] private float raycastOffset = 0.05f;
+    [SerializeField] private bool useCapsuleTrigger = false;
 
     [Header("Referências Internas")]
     [SerializeField] private MeshFilter beamMeshFilter;
@@ -74,14 +75,14 @@ public class GodRayBeam : MonoBehaviour
     public float TopRadius => topRadius;
     public float BottomRadius => bottomRadius;
     public float MaxHeight => maxHeight;
+    public float Intensity => intensity;
+    public LightSource AttachedLightSource => attachedLightSource;
     public Vector3 BeamDirection => -transform.up;
     public Color EffectiveDustColor => overrideDustColor ? dustCustomColor : new Color(rayColor.r, rayColor.g, rayColor.b, dustOpacity);
-    public Renderer GroundRingRenderer => groundRingRenderer;
-    public ParticleSystem DustParticles => dustParticles;
-    public MeshRenderer BeamMeshRenderer => beamMeshRenderer;
-
+    public Renderer GroundRingRenderer => groundRingRenderer; public ParticleSystem DustParticles => dustParticles; public MeshRenderer BeamMeshRenderer => beamMeshRenderer;
     private void Awake() { EnsureComponents(); UpdateHeightWithRaycast(); ApplyVisualProperties(); }
-    private void OnEnable() { EnsureComponents(); UpdateHeightWithRaycast(); ApplyVisualProperties(); }
+    private void OnEnable() { AlbedoWallLightGlobals.Register(this); EnsureComponents(); UpdateHeightWithRaycast(); ApplyVisualProperties(); }
+    private void OnDisable() => AlbedoWallLightGlobals.Unregister(this);
 
     private void Update()
     {
@@ -117,7 +118,8 @@ public class GodRayBeam : MonoBehaviour
             foreach (var h in hits)
             {
                 if (h.collider == null || h.collider.isTrigger || h.collider.transform.IsChildOf(transform)) continue;
-                if (transform.parent != null && (h.collider.transform.IsChildOf(transform.parent) || h.collider.transform == transform.parent)) continue;
+                if (transform.parent != null && (h.collider.transform.IsChildOf(transform.root) || h.collider.transform == transform.parent)) continue;
+                if (h.collider.GetComponentInParent<PlayerController>() != null || h.collider.GetComponentInParent<PrismaController>() != null) continue;
                 hit = h; hasHit = true; break;
             }
         }
@@ -277,10 +279,15 @@ public class GodRayBeam : MonoBehaviour
     {
         if (beamMeshFilter == null) beamMeshFilter = GetComponent<MeshFilter>() ?? gameObject.AddComponent<MeshFilter>();
         if (beamMeshRenderer == null) beamMeshRenderer = GetComponent<MeshRenderer>() ?? gameObject.AddComponent<MeshRenderer>();
-        if (triggerCollider == null) triggerCollider = GetComponent<CapsuleCollider>() ?? gameObject.AddComponent<CapsuleCollider>();
-        triggerCollider.isTrigger = true;
-        Rigidbody rb = GetComponent<Rigidbody>();
-        if (rb == null) { rb = gameObject.AddComponent<Rigidbody>(); rb.isKinematic = true; rb.useGravity = false; }
+        if (useCapsuleTrigger)
+        {
+            if (triggerCollider == null) triggerCollider = GetComponent<CapsuleCollider>() ?? gameObject.AddComponent<CapsuleCollider>();
+            triggerCollider.isTrigger = true;
+            Rigidbody rb = GetComponent<Rigidbody>() ?? gameObject.AddComponent<Rigidbody>();
+            rb.isKinematic = true; rb.useGravity = false;
+            (GetComponent<GodRayTriggerZone>() ?? gameObject.AddComponent<GodRayTriggerZone>()).Initialize(this);
+        }
+        else triggerCollider = null;
         if (dustParticles == null) { Transform p = transform.Find("DustParticles"); if (p != null) dustParticles = p.GetComponent<ParticleSystem>(); }
         if (groundRingTransform == null) { Transform r = transform.Find("GroundRing"); if (r != null) { groundRingTransform = r; groundRingRenderer = r.GetComponent<Renderer>(); } }
         if (groundRingRenderer != null && groundRingRenderer.sharedMaterial == null)
@@ -289,6 +296,5 @@ public class GodRayBeam : MonoBehaviour
             groundRingRenderer.sharedMaterial = new Material(s);
         }
         if (attachedLightSource == null) attachedLightSource = GetComponent<LightSource>() ?? gameObject.AddComponent<LightSource>();
-        GodRayTriggerZone tz = GetComponent<GodRayTriggerZone>() ?? gameObject.AddComponent<GodRayTriggerZone>(); tz.Initialize(this);
     }
 }

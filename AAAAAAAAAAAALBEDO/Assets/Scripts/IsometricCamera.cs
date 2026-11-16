@@ -1,5 +1,6 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 
 /// <summary>
 /// Configura e gerencia a Main Camera em projeção isométrica ortográfica.
@@ -50,12 +51,40 @@ public class IsometricCamera : MonoBehaviour
         }
 
         cam = GetComponent<Camera>();
+        ApplyHDQualitySettings();
         ApplyIsometricSettings();
+    }
+
+    private void ApplyHDQualitySettings()
+    {
+        if (cam == null) return;
+        cam.allowMSAA = true;
+        cam.allowDynamicResolution = false;
+
+        var urpCam = GetComponent<UniversalAdditionalCameraData>();
+        if (urpCam != null)
+        {
+            // Usa None para nao borrar o padrao de halftone das paredes; a suavizacao vem do MSAA de hardware (igual a Scene View)
+            urpCam.antialiasing = AntialiasingMode.None;
+        }
+
+        if (Application.isPlaying)
+        {
+            QualitySettings.antiAliasing = 8;
+            if (UniversalRenderPipeline.asset != null)
+            {
+                if (UniversalRenderPipeline.asset.renderScale < 1f)
+                    UniversalRenderPipeline.asset.renderScale = 1f;
+                if (UniversalRenderPipeline.asset.msaaSampleCount < 8)
+                    UniversalRenderPipeline.asset.msaaSampleCount = 8;
+            }
+        }
     }
 
     private void OnValidate()
     {
         cam = GetComponent<Camera>();
+        ApplyHDQualitySettings();
         ApplyIsometricSettings();
     }
 

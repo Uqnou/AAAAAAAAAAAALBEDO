@@ -26,14 +26,17 @@ Material:
     m_Ints: []
     m_Floats:
     - _AspectRatio: 0.55
+    - _BeamIntensity: 2.64
     - _LightCutoff: 0.5
     - _LightIntensityScale: 1
+    - _MainLightWeight: 0
     - _PatternScale: 30
     - _PatternSoftness: 0.03
     - _PatternThreshold: 0.28
     - _RampEnd: 0.3
     - _RampStart: 0.2681818
     - _Scale: 0.07
+    - _UnityLightWeight: 0.45
     - _VoronoiScale: 5
     m_Colors:
     - _BaseColor: {r: 0.85, g: 0.85, b: 0.85, a: 1}

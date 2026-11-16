@@ -26,11 +26,13 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
+    - _BaseAlpha: 0.55
     - _Feather: 0.15
     - _InnerRadius: 0
     - _Intensity: 2
     - _PulseAmount: 0.25
     - _PulseSpeed: 2
+    - _WhiteAlphaScale: 0.42
     m_Colors:
     - _TintColor: {r: 1, g: 0.9, b: 0.6, a: 1}
   m_BuildTextureStacks: []

@@ -10,7 +10,7 @@ QualitySettings:
     name: Mobile
     pixelLightCount: 2
     shadows: 2
-    shadowResolution: 1
+    shadowResolution: 2
     shadowProjection: 1
     shadowCascades: 2
     shadowDistance: 40
@@ -22,7 +22,7 @@ QualitySettings:
     globalTextureMipmapLimit: 0
     textureMipmapLimitSettings: []
     anisotropicTextures: 1
-    antiAliasing: 0
+    antiAliasing: 4
     softParticles: 0
     softVegetation: 1
     realtimeReflectionProbes: 0
@@ -62,9 +62,9 @@ QualitySettings:
     - Standalone
   - serializedVersion: 5
     name: PC
-    pixelLightCount: 2
+    pixelLightCount: 4
     shadows: 2
-    shadowResolution: 1
+    shadowResolution: 2
     shadowProjection: 1
     shadowCascades: 2
     shadowDistance: 40
@@ -76,7 +76,7 @@ QualitySettings:
     globalTextureMipmapLimit: 0
     textureMipmapLimitSettings: []
     anisotropicTextures: 2
-    antiAliasing: 0
+    antiAliasing: 8
     softParticles: 0
     softVegetation: 1
     realtimeReflectionProbes: 0

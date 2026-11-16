@@ -2,10 +2,14 @@ Shader "Custom/URP_StylizedShadow"
 {
     Properties
     {
-        _ShadowColor ("Shadow Color", Color) = (0.002, 0.002, 0.002, 0.8)
-        _VoronoiScale ("Voronoi Scale", Float) = 0.85
+        _ShadowColor ("Shadow Color", Color) = (0.002, 0.002, 0.002, 0.92)
+        _VoronoiScale ("Voronoi Scale", Float) = 1.25
         _NoiseOffset ("Noise Offset", Vector) = (0.0, 0.0, 0.2, 0.0)
-        _Cutoff ("Threshold", Range(0.0, 1.0)) = 0.518
+        _Cutoff ("Threshold", Range(0.0, 1.0)) = 0.72
+        _MinAlpha ("Min Opacity", Range(0.0, 1.0)) = 0.55
+        _FlowSpeed ("Liquid Flow Speed", Float) = 0.65
+        _WaveSpeed ("Mesh Wave Speed", Float) = 1.8
+        _WaveAmplitude ("Mesh Wave Amplitude", Float) = 0.045
     }
 
     SubShader
@@ -49,6 +53,10 @@ Shader "Custom/URP_StylizedShadow"
                 float _VoronoiScale;
                 float4 _NoiseOffset;
                 float _Cutoff;
+                float _MinAlpha;
+                float _FlowSpeed;
+                float _WaveSpeed;
+                float _WaveAmplitude;
             CBUFFER_END
 
             float3 Hash33(float3 p)
@@ -59,7 +67,7 @@ Shader "Custom/URP_StylizedShadow"
                 return frac(sin(p) * 43758.5453123);
             }
 
-            float Voronoi3D(float3 p)
+            float Voronoi3D(float3 p, float timePhase)
             {
                 float3 g = floor(p);
                 float3 f = frac(p);
@@ -72,7 +80,8 @@ Shader "Custom/URP_StylizedShadow"
                         for (int x = -1; x <= 1; x++)
                         {
                             float3 lattice = float3(x, y, z);
-                            float3 offset = Hash33(g + lattice);
+                            float3 rand = Hash33(g + lattice);
+                            float3 offset = 0.5 + 0.42 * sin(timePhase + 6.2831 * rand);
                             float3 d = lattice + offset - f;
                             minDist = min(minDist, length(d));
                         }
@@ -84,19 +93,33 @@ Shader "Custom/URP_StylizedShadow"
             Varyings vert(Attributes input)
             {
                 Varyings output;
-                VertexPositionInputs vertexInputs = GetVertexPositionInputs(input.positionOS.xyz);
+                float3 pos = input.positionOS.xyz;
+                float t = _Time.y * _WaveSpeed;
+                float ripple = sin(pos.x * 3.5 + t) * cos(pos.z * 3.5 - t * 0.8)
+                             + sin(pos.y * 4.0 + t * 1.2) * 0.5;
+                pos += input.normalOS * (ripple * _WaveAmplitude);
+
+                VertexPositionInputs vertexInputs = GetVertexPositionInputs(pos);
                 output.positionCS = vertexInputs.positionCS;
-                output.positionOS = input.positionOS.xyz;
+                output.positionOS = pos;
                 return output;
             }
 
             half4 frag(Varyings input) : SV_Target
             {
-                float3 objCoord = input.positionOS + _NoiseOffset.xyz;
-                float dist = Voronoi3D(objCoord * _VoronoiScale);
-                float alpha = smoothstep(_Cutoff, 0.0, dist) * _ShadowColor.a;
+                float t = _Time.y * _FlowSpeed;
+                float3 warp = float3(
+                    sin(input.positionOS.y * 2.2 + t * 1.1),
+                    cos(input.positionOS.x * 2.2 - t * 0.9),
+                    sin(input.positionOS.z * 2.2 + t * 0.8)
+                ) * 0.25;
 
-                return half4(_ShadowColor.rgb, alpha);
+                float3 objCoord = input.positionOS + _NoiseOffset.xyz + warp + float3(0.0, t * 0.35, t * 0.15);
+                float dist = Voronoi3D(objCoord * _VoronoiScale, t * 1.4);
+                float voronoiMask = smoothstep(_Cutoff, 0.0, dist);
+                float alpha = lerp(_MinAlpha, 1.0, voronoiMask) * _ShadowColor.a;
+
+                return half4(_ShadowColor.rgb, saturate(alpha));
             }
             ENDHLSL
         }

@@ -26,15 +26,18 @@ Material:
     m_Ints: []
     m_Floats:
     - _AspectRatio: 1.7777778
+    - _BeamIntensity: 1.73
     - _Frequency: 100
     - _FromMax: 2.1
     - _FromMin: -1.5
     - _LightCutoff: 0.5
     - _LightIntensityScale: 1
+    - _MainLightWeight: 0
     - _PatternScale: 20
     - _PatternSoftness: 0.03
     - _PatternThreshold: 0.35
     - _Steps: 4
+    - _UnityLightWeight: 0.35
     m_Colors:
     - _BackgroundColor: {r: 0, g: 0, b: 0, a: 1}
     - _BaseColor: {r: 0.75, g: 0.75, b: 0.78, a: 1}

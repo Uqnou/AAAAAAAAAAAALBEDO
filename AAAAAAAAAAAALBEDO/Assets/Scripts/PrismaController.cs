@@ -1,136 +1,174 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-public enum PrismColorMode { PrismTint, Multiply, PrismOverrides, LightColorDirect }
-
 /// <summary>
-/// Controla o Prisma no ALBEDO. Quando intercepta objetos na layer 'Light' ou fontes de luz,
-/// instancia o prefab GodRay_Mystic, permite ajustar suas dimensões e projeta o anel de luz
-/// em qualquer objeto/parede impactado.
+/// Controla o Prisma no ALBEDO. Une a emissão visual volumétrica do GodRay_Mystic
+/// com as mecânicas do GDD: presets e mistura aditiva RGB de múltiplas fontes de luz
+/// e feixes encadeados de outros prismas, mantendo o feixe horizontal mesmo em malhas FBX inclinadas.
 /// </summary>
 [SelectionBase, DisallowMultipleComponent]
 public class PrismaController : MonoBehaviour
 {
+    private static GameObject sharedGodRayPrefabCache;
+
     [Header("Cores")]
+    [SerializeField] private AlbedoColorPreset colorPreset = AlbedoColorPreset.Custom;
     [SerializeField] private Color prismColor = Color.white;
     [SerializeField] private PrismColorMode colorMode = PrismColorMode.PrismTint;
+    [SerializeField] private bool syncVisualIndicator = false;
+    [SerializeField] private int visualMaterialSlot = 1;
 
-    [Header("Emissão de God Ray (Prefab)")]
-    [SerializeField] private bool emitGodRay = true;
-    [Tooltip("Prefab do God Ray (Assets/GodRay_Mystic.prefab).")]
+    [Header("Emissão e Dimensões do God Ray (Prefab)")]
+    [SerializeField] private bool emitGodRay = true, customizeGodRaySize = true;
     [SerializeField] private GameObject godRayPrefab;
     [SerializeField] private GodRayBeam prismGodRay;
-    [Tooltip("LayerMask para detecção de objetos de luz (camada 'Light').")]
     [SerializeField] private LayerMask lightLayerMask;
-
-    [Header("Dimensões do God Ray")]
-    [SerializeField] private bool customizeGodRaySize = true;
     [Range(0.01f, 5f)] [SerializeField] private float godRayTopRadius = 0.35f;
     [Range(0.1f, 10f)] [SerializeField] private float godRayBottomRadius = 2.14f;
     [Range(1f, 100f)] [SerializeField] private float godRayLength = 20f;
 
-    [Header("Feixe Laser (LineRenderer)")]
+    [Header("Feixe e Direção")]
     [SerializeField] private Transform emissionPoint;
     [SerializeField] private Vector3 emissionDirection = Vector3.forward;
-    [SerializeField] private float beamRange = 30f, beamRadius = 0.35f, visualBeamWidth = 0.25f;
-    [SerializeField] private bool useLineRendererWithGodRay = false, enableDynamicLight = false;
+    [SerializeField] private bool keepBeamHorizontal = true, useLineRendererWithGodRay = false, enableDynamicLight = false;
+    [SerializeField] private float beamRange = 30f, beamRadius = 0.35f, visualBeamWidth = 0.25f, spotlightIntensity = 3.5f;
     [SerializeField] private Material beamMaterial;
     [SerializeField] private LayerMask obstacleLayers = ~0;
 
     private readonly HashSet<LightSource> activeLights = new HashSet<LightSource>();
+    private readonly HashSet<PrismaController> incomingPrisms = new HashSet<PrismaController>(), currentlyHitPrisms = new HashSet<PrismaController>();
     private readonly HashSet<SombraController> currentlyHitSombras = new HashSet<SombraController>();
-    private readonly List<SombraController> toRemoveSombras = new List<SombraController>();
+    private readonly List<Object> tempRemoveBuffer = new List<Object>();
     private readonly Dictionary<Collider, Color> lightLayerHits = new Dictionary<Collider, Color>();
-
+    private readonly List<Color> incomingColorBuffer = new List<Color>();
     private LineRenderer lineRenderer;
     private Light spotlight;
     private Color activeEmittedColor = Color.white;
-    private bool isEmitting = false;
+    private float currentHitDistance = 20f;
+    private bool isEmitting = false, isEvaluating = false;
     private GodRayBeam activeSourceGodRay = null;
-
-    public bool IsEmitting => isEmitting;
-    public Color PrismColor { get => prismColor; set => prismColor = value; }
-    public Color ActiveEmittedColor => activeEmittedColor;
-    public GodRayBeam PrismGodRay => prismGodRay;
-    public GameObject GodRayPrefab { get => godRayPrefab; set => godRayPrefab = value; }
+    public bool IsEmitting => isEmitting; public Color ActiveEmittedColor => activeEmittedColor;
+    public float CurrentHitDistance => currentHitDistance; public float GodRayTopRadius => godRayTopRadius;
+    public float GodRayBottomRadius => godRayBottomRadius; public float EffectiveMaxLength => customizeGodRaySize ? godRayLength : beamRange;
+    public GodRayBeam PrismGodRay => prismGodRay; public GameObject GodRayPrefab { get => godRayPrefab; set => godRayPrefab = value; }
+    public Color EffectivePrismColor => AlbedoColorUtility.PresetToColor(colorPreset, prismColor);
+    public AlbedoColorPreset ColorPreset { get => colorPreset; set { colorPreset = value; SyncPresetColor(); } }
+    public Color PrismColor { get => prismColor; set { prismColor = value; colorPreset = AlbedoColorUtility.InferPreset(value); } }
+    public static Color ComputeEmittedColor(Color intrinsicColor, Color incomingColor, PrismColorMode mode) => AlbedoColorUtility.ComputeEmittedColor(intrinsicColor, incomingColor, mode);
+    private void OnEnable() => AlbedoWallLightGlobals.Register(this);
 
     private void Awake()
     {
         if (emissionPoint == null) emissionPoint = transform;
         if (lightLayerMask.value == 0) { int ll = LayerMask.NameToLayer("Light"); if (ll != -1) lightLayerMask = 1 << ll; }
-        AutoAssignPrefab(); SetupBeamVisuals(); EnsureGodRayInstance();
+        if (colorPreset == AlbedoColorPreset.Custom && AlbedoColorUtility.ColorsMatch(prismColor, Color.white, true, 0.05f)
+            && AlbedoColorUtility.TryDetectPrismIntrinsicColor(gameObject, out Color matCol)) prismColor = matCol;
+        SyncPresetColor(); AutoAssignPrefab(); SetupBeamVisuals(); EnsureGodRayInstance();
     }
 
     private void OnValidate()
     {
         if (lightLayerMask.value == 0) { int ll = LayerMask.NameToLayer("Light"); if (ll != -1) lightLayerMask = 1 << ll; }
-        AutoAssignPrefab();
+        SyncPresetColor(); AutoAssignPrefab();
         if (customizeGodRaySize && prismGodRay != null) prismGodRay.SetDimensions(godRayTopRadius, godRayBottomRadius, godRayLength);
+    }
+
+    public void SetColorPreset(AlbedoColorPreset preset) { colorPreset = preset; SyncPresetColor(); }
+    private void SyncPresetColor()
+    {
+        if (colorPreset != AlbedoColorPreset.Custom) prismColor = AlbedoColorUtility.PresetToColor(colorPreset, prismColor);
+        if (syncVisualIndicator) AlbedoColorUtility.ApplyMaterialIndicator(GetComponent<Renderer>(), visualMaterialSlot, EffectivePrismColor, true);
     }
 
     private void AutoAssignPrefab()
     {
+        if (godRayPrefab != null) { sharedGodRayPrefabCache = godRayPrefab; return; }
 #if UNITY_EDITOR
-        if (godRayPrefab == null) godRayPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/GodRay_Mystic.prefab");
+        if ((godRayPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/GodRay_Mystic.prefab")) != null) sharedGodRayPrefabCache = godRayPrefab;
 #endif
+        if (godRayPrefab == null && sharedGodRayPrefabCache != null) godRayPrefab = sharedGodRayPrefabCache;
     }
 
     private void SetupBeamVisuals()
     {
         GameObject bObj = new GameObject("PrismLightBeam");
-        bObj.transform.SetParent(emissionPoint != null ? emissionPoint : transform);
-        bObj.transform.localPosition = Vector3.zero; bObj.transform.localRotation = Quaternion.LookRotation(emissionDirection);
+        bObj.transform.SetParent(emissionPoint != null ? emissionPoint : transform, false);
         lineRenderer = bObj.AddComponent<LineRenderer>();
         lineRenderer.positionCount = 2; lineRenderer.startWidth = lineRenderer.endWidth = visualBeamWidth;
-        lineRenderer.useWorldSpace = true; lineRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-
+        lineRenderer.useWorldSpace = true; lineRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off; lineRenderer.receiveShadows = false;
         if (beamMaterial == null)
         {
             Shader s = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Sprites/Default");
-            beamMaterial = new Material(s) { name = "PrismBeam_Mat" };
-            if (beamMaterial.HasProperty("_Surface")) beamMaterial.SetFloat("_Surface", 1);
-            if (beamMaterial.HasProperty("_Blend")) beamMaterial.SetFloat("_Blend", 1);
+            if (s != null) { beamMaterial = new Material(s) { name = "PrismBeam_Mat" }; if (beamMaterial.HasProperty("_Surface")) beamMaterial.SetFloat("_Surface", 1); if (beamMaterial.HasProperty("_Blend")) beamMaterial.SetFloat("_Blend", 1); }
         }
-        lineRenderer.material = beamMaterial; lineRenderer.enabled = false;
-
+        if (beamMaterial != null) lineRenderer.material = beamMaterial;
+        lineRenderer.enabled = false;
         if (enableDynamicLight)
         {
-            GameObject lObj = new GameObject("PrismSpotlight"); lObj.transform.SetParent(bObj.transform); lObj.transform.localPosition = Vector3.zero;
-            spotlight = lObj.AddComponent<Light>(); spotlight.type = LightType.Spot; spotlight.range = beamRange; spotlight.spotAngle = 40f; spotlight.intensity = 3.5f; spotlight.enabled = false;
+            GameObject lObj = new GameObject("PrismSpotlight"); lObj.transform.SetParent(bObj.transform, false);
+            spotlight = lObj.AddComponent<Light>(); spotlight.type = LightType.Spot;
+            spotlight.range = beamRange; spotlight.spotAngle = 40f; spotlight.intensity = spotlightIntensity; spotlight.enabled = false;
         }
     }
 
-    private void EnsureGodRayInstance()
+    private bool EnsureGodRayInstance()
     {
         if (prismGodRay != null || (prismGodRay = GetComponentInChildren<GodRayBeam>(true)) != null)
         {
-            prismGodRay.enabled = true; if (customizeGodRaySize) prismGodRay.SetDimensions(godRayTopRadius, godRayBottomRadius, godRayLength); return;
+            prismGodRay.enabled = true; NormalizeGodRayScale();
+            if (customizeGodRaySize) prismGodRay.SetDimensions(godRayTopRadius, godRayBottomRadius, godRayLength);
+            return true;
         }
-        AutoAssignPrefab(); if (godRayPrefab == null) return;
-        Transform parent = emissionPoint != null ? emissionPoint : transform;
-        GameObject rayObj = Instantiate(godRayPrefab, parent);
+        AutoAssignPrefab(); if (godRayPrefab == null) return false;
+        GameObject rayObj = Instantiate(godRayPrefab, emissionPoint != null ? emissionPoint : transform);
         rayObj.name = $"{gameObject.name}_GodRay"; rayObj.transform.localPosition = Vector3.zero;
-        rayObj.transform.localRotation = Quaternion.FromToRotation(Vector3.down, emissionDirection);
         prismGodRay = rayObj.GetComponent<GodRayBeam>() ?? rayObj.GetComponentInChildren<GodRayBeam>();
-        if (prismGodRay != null)
-        {
-            prismGodRay.enabled = true; if (customizeGodRaySize) prismGodRay.SetDimensions(godRayTopRadius, godRayBottomRadius, godRayLength);
-            prismGodRay.SetColor(activeEmittedColor);
-        }
+        NormalizeGodRayScale();
+        if (prismGodRay != null) { prismGodRay.enabled = true; if (customizeGodRaySize) prismGodRay.SetDimensions(godRayTopRadius, godRayBottomRadius, godRayLength); prismGodRay.SetColor(activeEmittedColor); }
         rayObj.SetActive(false);
+        return prismGodRay != null;
+    }
+
+    private void NormalizeGodRayScale()
+    {
+        if (prismGodRay == null || prismGodRay.transform.parent == null) return;
+        Vector3 s = prismGodRay.transform.parent.lossyScale;
+        prismGodRay.transform.localScale = new Vector3(1f / Mathf.Max(0.001f, Mathf.Abs(s.x)), 1f / Mathf.Max(0.001f, Mathf.Abs(s.y)), 1f / Mathf.Max(0.001f, Mathf.Abs(s.z)));
     }
 
     private void Update()
     {
-        activeLights.RemoveWhere(l => l == null || !l.gameObject.activeInHierarchy || !l.enabled);
-        if (lightLayerHits.Count > 0)
+        if (isEvaluating) return;
+        isEvaluating = true;
+        try
         {
-            List<Collider> dead = null;
-            foreach (var c in lightLayerHits.Keys) if (c == null || !c.gameObject.activeInHierarchy) (dead ?? (dead = new List<Collider>())).Add(c);
-            if (dead != null) foreach (var c in dead) lightLayerHits.Remove(c);
+            activeLights.RemoveWhere(l => l == null || !l.gameObject.activeInHierarchy || !l.enabled);
+            incomingPrisms.RemoveWhere(p => p == null || !p.gameObject.activeInHierarchy || !p.IsEmitting);
+            if (lightLayerHits.Count > 0)
+            {
+                tempRemoveBuffer.Clear();
+                foreach (var c in lightLayerHits.Keys) if (c == null || !c.gameObject.activeInHierarchy) tempRemoveBuffer.Add(c);
+                for (int i = 0; i < tempRemoveBuffer.Count; i++) lightLayerHits.Remove((Collider)tempRemoveBuffer[i]);
+            }
+            incomingColorBuffer.Clear();
+            foreach (var l in activeLights) if (l != null && l.IsActive) incomingColorBuffer.Add(l.LightColor);
+            foreach (var p in incomingPrisms) if (p != null && p != this && p.IsEmitting) incomingColorBuffer.Add(p.ActiveEmittedColor);
+            if (incomingColorBuffer.Count == 0 && lightLayerHits.Count > 0)
+                foreach (var kvp in lightLayerHits)
+                {
+                    if (kvp.Key == null || !kvp.Key.gameObject.activeInHierarchy) continue;
+                    LightSource ls = kvp.Key.GetComponent<LightSource>() ?? kvp.Key.GetComponentInParent<LightSource>();
+                    if (ls == null || ls.IsActive) incomingColorBuffer.Add(AlbedoColorUtility.TryExtractObjectColor(kvp.Key.gameObject, out Color c) ? c : kvp.Value);
+                }
+            if (incomingColorBuffer.Count > 0)
+            {
+                isEmitting = true; RefreshSourceGodRay();
+                activeEmittedColor = ComputeEmittedColor(EffectivePrismColor, AlbedoColorUtility.CombineAdditive(incomingColorBuffer), colorMode);
+                UpdateBeamAndTargets();
+            }
+            else if (isEmitting) StopEmissionImmediately();
         }
-        if (activeLights.Count > 0 || lightLayerHits.Count > 0) { isEmitting = true; RefreshSourceGodRay(); UpdateEmissionColor(); UpdateBeamAndShadows(); }
-        else if (isEmitting) StopEmissionImmediately();
+        finally { isEvaluating = false; }
     }
 
     private void RefreshSourceGodRay()
@@ -140,96 +178,54 @@ public class PrismaController : MonoBehaviour
         foreach (var ls in activeLights) if (ls != null) { var gr = ls.GetComponent<GodRayBeam>() ?? ls.GetComponentInParent<GodRayBeam>(); if (gr != null) { activeSourceGodRay = gr; break; } }
     }
 
-    private bool IsLightLayer(GameObject go)
-    {
-        if (go == null) return false;
-        int mask = lightLayerMask.value != 0 ? lightLayerMask.value : (1 << LayerMask.NameToLayer("Light"));
-        return (mask & (1 << go.layer)) != 0 || (go.transform.parent != null && (mask & (1 << go.transform.parent.gameObject.layer)) != 0);
-    }
+    public Vector3 GetBeamWorldOrigin() => emissionPoint != null ? emissionPoint.position : transform.position;
 
-    private bool TryGetColorFromObject(GameObject obj, out Color color)
+    public Vector3 GetBeamWorldDirection()
     {
-        color = Color.white; if (obj == null) return false;
-        var gr = obj.GetComponent<GodRayBeam>() ?? obj.GetComponentInParent<GodRayBeam>() ?? obj.GetComponentInChildren<GodRayBeam>();
-        if (gr != null) { color = gr.CurrentColor; return true; }
-        var ls = obj.GetComponent<LightSource>() ?? obj.GetComponentInParent<LightSource>() ?? obj.GetComponentInChildren<LightSource>();
-        if (ls != null) { color = ls.LightColor; return true; }
-        var l = obj.GetComponent<Light>() ?? obj.GetComponentInParent<Light>() ?? obj.GetComponentInChildren<Light>();
-        if (l != null) { color = l.color; return true; }
-        var r = obj.GetComponent<Renderer>() ?? obj.GetComponentInParent<Renderer>() ?? obj.GetComponentInChildren<Renderer>();
-        if (r != null && r.sharedMaterial != null)
+        Transform src = emissionPoint != null ? emissionPoint : transform;
+        Vector3 dir = src.TransformDirection(emissionDirection);
+        if (keepBeamHorizontal)
         {
-            var m = r.sharedMaterial;
-            if (m.HasProperty("_TintColor")) { color = m.GetColor("_TintColor"); return true; }
-            if (m.HasProperty("_BaseColor")) { color = m.GetColor("_BaseColor"); return true; }
-            if (m.HasProperty("_Color")) { color = m.GetColor("_Color"); return true; }
-            color = m.color; return true;
+            Vector3 flat = new Vector3(dir.x, 0f, dir.z); if (flat.sqrMagnitude > 0.0001f) return flat.normalized;
+            Vector3 alt = new Vector3(src.up.x, 0f, src.up.z); if (alt.sqrMagnitude > 0.0001f) return alt.normalized;
         }
-        return false;
+        return dir.sqrMagnitude > 0.0001f ? dir.normalized : Vector3.forward;
     }
 
-    private void UpdateEmissionColor()
+    private void UpdateBeamAndTargets()
     {
-        Color incoming = Color.white; bool fromLightLayer = false;
-        if (lightLayerHits.Count > 0)
-        {
-            foreach (var kvp in lightLayerHits)
-                if (kvp.Key != null && kvp.Key.gameObject.activeInHierarchy) { incoming = TryGetColorFromObject(kvp.Key.gameObject, out Color c) ? c : kvp.Value; fromLightLayer = true; break; }
-        }
-        if (!fromLightLayer && activeSourceGodRay != null) incoming = activeSourceGodRay.CurrentColor;
-        else if (!fromLightLayer) foreach (var l in activeLights) if (l != null) { incoming = l.LightColor; break; }
-
-        if (fromLightLayer || colorMode == PrismColorMode.LightColorDirect) activeEmittedColor = incoming;
-        else if (colorMode == PrismColorMode.PrismOverrides) activeEmittedColor = prismColor != Color.white ? prismColor : incoming;
-        else if (colorMode == PrismColorMode.Multiply) activeEmittedColor = new Color(incoming.r * prismColor.r, incoming.g * prismColor.g, incoming.b * prismColor.b, 1f);
-        else activeEmittedColor = (prismColor == Color.white) ? incoming : ((incoming == Color.white) ? prismColor : Color.Lerp(incoming, prismColor, 0.7f));
-    }
-
-    private void UpdateBeamAndShadows()
-    {
-        Vector3 origin = emissionPoint != null ? emissionPoint.position : transform.position;
-        Vector3 dir = emissionPoint != null ? emissionPoint.TransformDirection(emissionDirection).normalized : transform.forward;
-        float hitDist = customizeGodRaySize ? godRayLength : beamRange; Vector3 endPoint = origin + dir * hitDist;
-
-        if (Physics.Raycast(new Ray(origin, dir), out RaycastHit wallHit, hitDist, obstacleLayers, QueryTriggerInteraction.Ignore))
-            if (wallHit.collider.GetComponentInParent<SombraController>() == null) { hitDist = wallHit.distance; endPoint = wallHit.point; }
-
-        HashSet<SombraController> newlyHit = new HashSet<SombraController>();
+        Vector3 origin = GetBeamWorldOrigin(), dir = GetBeamWorldDirection();
+        float maxDist = customizeGodRaySize ? godRayLength : beamRange, hitDist = maxDist;
+        Vector3 endPoint = origin + dir * maxDist;
+        foreach (var h in Physics.RaycastAll(origin, dir, maxDist, obstacleLayers, QueryTriggerInteraction.Ignore))
+            if (!AlbedoWallLightGlobals.IsPassThroughCollider(h.collider, transform) && h.distance < hitDist) { hitDist = h.distance; endPoint = h.point; }
+        currentHitDistance = hitDist;
+        var newlyHitSombras = new HashSet<SombraController>(); var newlyHitPrisms = new HashSet<PrismaController>();
         foreach (var hit in Physics.SphereCastAll(origin, beamRadius, dir, hitDist, ~0, QueryTriggerInteraction.Collide))
         {
             if (hit.collider == null || hit.collider.transform.IsChildOf(transform)) continue;
             SombraController s = hit.collider.GetComponentInParent<SombraController>();
-            if (s != null && s.gameObject.activeInHierarchy && (Vector3.Dot(dir, (s.transform.position - origin).normalized) > 0.05f || hit.distance > 0.01f))
-            { newlyHit.Add(s); s.SetIlluminated(true, this); }
+            if (s == null && hit.collider.gameObject.name.StartsWith("Sombra")) s = hit.collider.gameObject.AddComponent<SombraController>();
+            if (s != null && s.gameObject.activeInHierarchy && (Vector3.Dot(dir, (s.transform.position - origin).normalized) > 0.05f || hit.distance > 0.01f)) { newlyHitSombras.Add(s); s.SetIlluminated(true, this); }
+            PrismaController p = hit.collider.GetComponentInParent<PrismaController>();
+            if (p != null && p != this && p.gameObject.activeInHierarchy && !HasUpstreamSource(p, 8)) { newlyHitPrisms.Add(p); p.ReceivePrismBeam(true, this); }
         }
-
-        toRemoveSombras.Clear();
-        foreach (var s in currentlyHitSombras) if (!newlyHit.Contains(s)) toRemoveSombras.Add(s);
-        foreach (var s in toRemoveSombras) { if (s != null) s.SetIlluminated(false, this); currentlyHitSombras.Remove(s); }
-        foreach (var s in newlyHit) currentlyHitSombras.Add(s);
-
-        if (emitGodRay)
+        AlbedoWallLightGlobals.CollectPrismsInCone(this, origin, dir, hitDist, maxDist, godRayTopRadius, godRayBottomRadius, obstacleLayers, newlyHitPrisms);
+        SyncHitTargets(currentlyHitSombras, newlyHitSombras, s => s.SetIlluminated(false, this));
+        SyncHitTargets(currentlyHitPrisms, newlyHitPrisms, p => p.ReceivePrismBeam(false, this));
+        if (emitGodRay && EnsureGodRayInstance() && prismGodRay != null)
         {
-            EnsureGodRayInstance();
-            if (prismGodRay != null)
-            {
-                if (!prismGodRay.gameObject.activeSelf) prismGodRay.gameObject.SetActive(true);
-                if (customizeGodRaySize) prismGodRay.SetDimensions(godRayTopRadius, godRayBottomRadius, godRayLength);
-                prismGodRay.transform.position = origin; prismGodRay.transform.rotation = Quaternion.FromToRotation(Vector3.down, dir);
-                prismGodRay.SetColor(activeEmittedColor); prismGodRay.UpdateHeightWithRaycast();
-            }
+            if (!prismGodRay.gameObject.activeSelf) prismGodRay.gameObject.SetActive(true);
+            NormalizeGodRayScale(); if (customizeGodRaySize) prismGodRay.SetDimensions(godRayTopRadius, godRayBottomRadius, godRayLength);
+            prismGodRay.transform.position = origin; prismGodRay.transform.rotation = Quaternion.FromToRotation(Vector3.down, dir);
+            prismGodRay.SetColor(activeEmittedColor); prismGodRay.UpdateHeightWithRaycast();
         }
-
-        if (lineRenderer != null)
+        if (lineRenderer != null && (lineRenderer.enabled = !emitGodRay || useLineRendererWithGodRay))
         {
-            lineRenderer.enabled = !emitGodRay || useLineRendererWithGodRay;
-            if (lineRenderer.enabled)
-            {
-                lineRenderer.SetPosition(0, origin); lineRenderer.SetPosition(1, endPoint);
-                lineRenderer.colorGradient = new Gradient { colorKeys = new[] { new GradientColorKey(activeEmittedColor, 0f), new GradientColorKey(activeEmittedColor, 1f) }, alphaKeys = new[] { new GradientAlphaKey(0.85f, 0f), new GradientAlphaKey(0.4f, 1f) } };
-            }
+            lineRenderer.SetPosition(0, origin); lineRenderer.SetPosition(1, endPoint);
+            lineRenderer.colorGradient = new Gradient { colorKeys = new[] { new GradientColorKey(activeEmittedColor, 0f), new GradientColorKey(activeEmittedColor, 1f) }, alphaKeys = new[] { new GradientAlphaKey(0.85f, 0f), new GradientAlphaKey(0.4f, 1f) } };
         }
-        if (spotlight != null) { spotlight.enabled = true; spotlight.color = activeEmittedColor; spotlight.range = hitDist + 2f; spotlight.transform.rotation = Quaternion.LookRotation(dir); }
+        if (spotlight != null) { spotlight.enabled = true; spotlight.color = activeEmittedColor; spotlight.intensity = spotlightIntensity; spotlight.range = hitDist + 2f; spotlight.transform.rotation = Quaternion.LookRotation(dir); }
     }
 
     public void StopEmissionImmediately()
@@ -240,55 +236,63 @@ public class PrismaController : MonoBehaviour
         if (spotlight != null) spotlight.enabled = false;
         foreach (var s in currentlyHitSombras) if (s != null) s.SetIlluminated(false, this);
         currentlyHitSombras.Clear();
+        foreach (var p in currentlyHitPrisms) if (p != null) p.ReceivePrismBeam(false, this);
+        currentlyHitPrisms.Clear();
     }
 
-    public void RegisterDirectGodRay(GodRayBeam gr)
+    private void SyncHitTargets<T>(HashSet<T> current, HashSet<T> next, System.Action<T> onExit) where T : Object
     {
-        if (gr == null || gr.transform.IsChildOf(transform)) return;
-        LightSource ls = gr.GetComponent<LightSource>() ?? gr.gameObject.AddComponent<LightSource>();
-        activeLights.Add(ls); activeSourceGodRay = gr;
+        tempRemoveBuffer.Clear();
+        foreach (var item in current) if (!next.Contains(item)) tempRemoveBuffer.Add(item);
+        for (int i = 0; i < tempRemoveBuffer.Count; i++) { var item = (T)tempRemoveBuffer[i]; if (item != null) onExit(item); current.Remove(item); }
+        foreach (var item in next) current.Add(item);
     }
 
-    public void UnregisterDirectGodRay(GodRayBeam gr)
+    public bool HasUpstreamSource(PrismaController candidate, int depth)
     {
-        if (gr == null) return;
-        LightSource ls = gr.GetComponent<LightSource>(); if (ls != null) activeLights.Remove(ls);
-        if (activeSourceGodRay == gr) { activeSourceGodRay = null; RefreshSourceGodRay(); }
+        if (depth <= 0 || candidate == null) return false;
+        if (incomingPrisms.Contains(candidate)) return true;
+        foreach (var src in incomingPrisms) if (src != null && src.HasUpstreamSource(candidate, depth - 1)) return true;
+        return false;
     }
 
-    private void RegisterLight(Collider col)
+    public void ReceivePrismBeam(bool illuminated, PrismaController source) { if (source != null && source != this) { if (illuminated) incomingPrisms.Add(source); else incomingPrisms.Remove(source); } }
+    public void RegisterDirectGodRay(GodRayBeam gr) => RegisterLight(gr != null ? gr.GetComponent<Collider>() : null, gr);
+    public void UnregisterDirectGodRay(GodRayBeam gr) => UnregisterLight(gr != null ? gr.GetComponent<Collider>() : null, gr);
+    private bool IsLightLayer(GameObject go) { int mask = lightLayerMask.value != 0 ? lightLayerMask.value : (1 << LayerMask.NameToLayer("Light")); return go != null && ((mask & (1 << go.layer)) != 0 || (go.transform.parent != null && (mask & (1 << go.transform.parent.gameObject.layer)) != 0)); }
+
+    private void RegisterLight(Collider col, GodRayBeam directGr = null)
     {
-        if (col == null || col.transform.IsChildOf(transform)) return;
-        if (IsLightLayer(col.gameObject)) lightLayerHits[col] = TryGetColorFromObject(col.gameObject, out Color c) ? c : Color.white;
-        LightSource ls = col.GetComponent<LightSource>() ?? col.GetComponentInParent<LightSource>();
-        GodRayBeam gr = col.GetComponent<GodRayBeam>() ?? col.GetComponentInParent<GodRayBeam>();
-        if (ls != null && !ls.transform.IsChildOf(transform)) { activeLights.Add(ls); if (gr == null) gr = ls.GetComponent<GodRayBeam>() ?? ls.GetComponentInParent<GodRayBeam>(); }
-        else if (gr != null && !gr.transform.IsChildOf(transform)) { LightSource gLs = gr.GetComponent<LightSource>() ?? gr.gameObject.AddComponent<LightSource>(); activeLights.Add(gLs); }
+        Transform refT = col != null ? col.transform : (directGr != null ? directGr.transform : null);
+        if (refT == null || refT.IsChildOf(transform)) return;
+        PrismaController owner = refT.GetComponentInParent<PrismaController>();
+        if (owner != null && owner != this) { if (!currentlyHitPrisms.Contains(owner) && !HasUpstreamSource(owner, 8)) incomingPrisms.Add(owner); return; }
+        if (col != null && IsLightLayer(col.gameObject)) lightLayerHits[col] = AlbedoColorUtility.TryExtractObjectColor(col.gameObject, out Color c) ? c : Color.white;
+        LightSource ls = refT.GetComponent<LightSource>() ?? refT.GetComponentInParent<LightSource>();
+        GodRayBeam gr = directGr ?? refT.GetComponent<GodRayBeam>() ?? refT.GetComponentInParent<GodRayBeam>();
+        if (ls != null && !ls.transform.IsChildOf(transform)) activeLights.Add(ls);
+        else if (gr != null && !gr.transform.IsChildOf(transform)) activeLights.Add(gr.GetComponent<LightSource>() ?? gr.gameObject.AddComponent<LightSource>());
         if (gr != null && !gr.transform.IsChildOf(transform)) activeSourceGodRay = gr;
     }
 
-    private void UnregisterLight(Collider col)
+    private void UnregisterLight(Collider col, GodRayBeam directGr = null)
     {
-        if (col == null) return;
-        lightLayerHits.Remove(col);
-        LightSource ls = col.GetComponent<LightSource>() ?? col.GetComponentInParent<LightSource>();
-        GodRayBeam gr = col.GetComponent<GodRayBeam>() ?? col.GetComponentInParent<GodRayBeam>();
+        Transform refT = col != null ? col.transform : (directGr != null ? directGr.transform : null);
+        if (refT == null) return;
+        if (col != null) lightLayerHits.Remove(col);
+        PrismaController owner = refT.GetComponentInParent<PrismaController>();
+        if (owner != null && owner != this) { incomingPrisms.Remove(owner); return; }
+        LightSource ls = refT.GetComponent<LightSource>() ?? refT.GetComponentInParent<LightSource>();
+        GodRayBeam gr = directGr ?? refT.GetComponent<GodRayBeam>() ?? refT.GetComponentInParent<GodRayBeam>();
         if (ls != null) activeLights.Remove(ls);
         if (gr != null && gr == activeSourceGodRay) { activeSourceGodRay = null; RefreshSourceGodRay(); }
         if (activeLights.Count == 0 && lightLayerHits.Count == 0) activeSourceGodRay = null;
     }
 
     private void OnTriggerEnter(Collider o) => RegisterLight(o);
+    private void OnTriggerStay(Collider o) => RegisterLight(o);
     private void OnTriggerExit(Collider o) => UnregisterLight(o);
     private void OnCollisionEnter(Collision c) => RegisterLight(c.collider);
     private void OnCollisionExit(Collision c) => UnregisterLight(c.collider);
-    private void OnDisable() { lightLayerHits.Clear(); activeLights.Clear(); StopEmissionImmediately(); }
-
-    private void OnDrawGizmosSelected()
-    {
-        Vector3 origin = emissionPoint != null ? emissionPoint.position : transform.position;
-        Vector3 dir = emissionPoint != null ? emissionPoint.TransformDirection(emissionDirection).normalized : transform.forward;
-        Gizmos.color = isEmitting ? activeEmittedColor : prismColor;
-        Gizmos.DrawRay(origin, dir * 3f); Gizmos.DrawWireSphere(origin, beamRadius);
-    }
+    private void OnDisable() { AlbedoWallLightGlobals.Unregister(this); lightLayerHits.Clear(); activeLights.Clear(); incomingPrisms.Clear(); StopEmissionImmediately(); }
 }

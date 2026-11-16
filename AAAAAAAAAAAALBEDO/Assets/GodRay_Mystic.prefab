@@ -2419,7 +2419,7 @@ GameObject:
   - component: {fileID: 2021358621091398525}
   - component: {fileID: 1016073470547319564}
   - component: {fileID: 5991840994885038801}
-  m_Layer: 0
+  m_Layer: 6
   m_Name: GodRay_Mystic
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -2515,6 +2515,12 @@ MonoBehaviour:
   lightColor: {r: 0.40217155, g: 0.514019, b: 0.5396226, a: 1}
   syncWithUnityLight: 1
   ensureTriggerCollider: 1
+  onLightSuppressed:
+    m_PersistentCalls:
+      m_Calls: []
+  onLightRestored:
+    m_PersistentCalls:
+      m_Calls: []
 --- !u!114 &5991840994885038801
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2522,7 +2528,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 8899919948920258699}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9c6ba8793e7743e4cb5e8623a2837ce8, type: 3}
   m_Name: 
@@ -2558,6 +2564,7 @@ MonoBehaviour:
   continuousHeightCheck: 0
   matchGroundSlopeProjection: 1
   raycastOffset: 0.05
+  useCapsuleTrigger: 0
   beamMeshFilter: {fileID: 2021358621091398525}
   beamMeshRenderer: {fileID: 1214400103701080765}
   dustParticles: {fileID: 4760880769977807369}
