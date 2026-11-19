@@ -18,3 +18,13 @@ Sempre que interagir, auditar, refatorar ou expandir o código ou documentação
 
 4. **Planejamento Prévio de Refatoração**:
    - Ao identificar arquivos candidatos a split ou refatoração, siga o protocolo de `plan-token-optimization`: elabore um plano detalhado com impacto de contagem de linhas antes de aplicar as mudanças diretamente quando solicitado.
+
+## 2. Conexão com o Unity Editor: Code Mode via Eval Nativo C# (Sem MCP)
+Para máxima economia de tokens (padrão Cloudflare Code Mode), **não utilize ferramentas MCP do Unity**:
+
+1. **Canal único via C# Eval (`com.unity.pipeline`)**:
+   - Conecte-se ao Unity Editor aberto diretamente pelo endpoint HTTP local `http://127.0.0.1:<port>/api/exec` usando `Library/Pipeline/.unity-pipeline-port` (`port` + `evalToken`) através do runner [`AgentScripts/unity-eval.ps1`](AgentScripts/unity-eval.ps1) (ou `unity command script eval` / `script run`).
+   - Prefira blocos curtos de C# executados em lote (loops, inspeção, mutações, `EditorSceneManager.SaveOpenScenes()`) retornando apenas um JSON mínimo e filtrado.
+2. **Scripts temporários em `AgentScripts/`**:
+   - Coloque scripts auxiliares C# em `AgentScripts/` (fora de `Assets/`) para evitar reimportação de assets e domain reloads desnecessários.
+   - Use `-DryRun` para validar sintaxe sem executar nem carregar assembly em memória.

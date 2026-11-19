@@ -63,9 +63,11 @@ public class GodRayBeam : MonoBehaviour
 
     private MaterialPropertyBlock propBlock;
     private float currentHeight = 8.0f;
+    private float minProjectedHeight = 0f;
     private Mesh generatedConeMesh;
     private Coroutine colorTransitionCoroutine;
     private LightSource attachedLightSource;
+    private float suppressionMultiplier = 1f;
     private static readonly int TintColorId = Shader.PropertyToID("_TintColor"), IntensityId = Shader.PropertyToID("_Intensity");
 
     public Color CurrentColor => rayColor;
@@ -76,6 +78,7 @@ public class GodRayBeam : MonoBehaviour
     public float BottomRadius => bottomRadius;
     public float MaxHeight => maxHeight;
     public float Intensity => intensity;
+    public float EffectiveStrength => intensity * suppressionMultiplier;
     public LightSource AttachedLightSource => attachedLightSource;
     public Vector3 BeamDirection => -transform.up;
     public Color EffectiveDustColor => overrideDustColor ? dustCustomColor : new Color(rayColor.r, rayColor.g, rayColor.b, dustOpacity);
@@ -87,6 +90,7 @@ public class GodRayBeam : MonoBehaviour
     private void Update()
     {
         if (continuousHeightCheck || !Application.isPlaying) UpdateHeightWithRaycast();
+        else if (transform.hasChanged) { UpdateShaderProperties(intensity); transform.hasChanged = false; }
         if (enablePulsing && Application.isPlaying) UpdateShaderProperties(intensity * (1.0f + Mathf.Sin(Time.time * pulseSpeed) * pulseAmplitude));
     }
 
@@ -107,49 +111,16 @@ public class GodRayBeam : MonoBehaviour
 
     public void UpdateHeightWithRaycast()
     {
-        float targetHeight = maxHeight; RaycastHit hit = default;
-        Vector3 beamDir = -transform.up, rayOrigin = transform.position + beamDir * raycastOffset;
-        bool hasHit = false;
-
-        RaycastHit[] hits = Physics.RaycastAll(rayOrigin, beamDir, maxHeight, groundLayerMask, QueryTriggerInteraction.Ignore);
-        if (hits != null && hits.Length > 0)
-        {
-            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-            foreach (var h in hits)
-            {
-                if (h.collider == null || h.collider.isTrigger || h.collider.transform.IsChildOf(transform)) continue;
-                if (transform.parent != null && (h.collider.transform.IsChildOf(transform.root) || h.collider.transform == transform.parent)) continue;
-                if (h.collider.GetComponentInParent<PlayerController>() != null || h.collider.GetComponentInParent<PrismaController>() != null) continue;
-                hit = h; hasHit = true; break;
-            }
-        }
-
-        if (hasHit)
-        {
-            targetHeight = hit.distance + raycastOffset;
-            if (groundRingTransform != null)
-            {
-                if (groundRingRenderer != null) groundRingRenderer.enabled = true;
-                groundRingTransform.position = hit.point + hit.normal * 0.02f;
-                Vector3 proj = Vector3.ProjectOnPlane(beamDir, hit.normal);
-                float stretch = matchGroundSlopeProjection && proj.sqrMagnitude > 0.001f ? 1.0f / Mathf.Clamp(Vector3.Dot(-beamDir, hit.normal), 0.15f, 1.0f) : 1.0f;
-                Vector3 up = (matchGroundSlopeProjection && proj.sqrMagnitude > 0.001f) ? proj.normalized : (Mathf.Abs(Vector3.Dot(hit.normal, Vector3.up)) > 0.9f ? Vector3.forward : Vector3.up);
-                groundRingTransform.rotation = Quaternion.LookRotation(hit.normal, up);
-                groundRingTransform.localScale = new Vector3(bottomRadius * 2.0f, bottomRadius * 2.0f * stretch, 1.0f);
-            }
-        }
-        else if (groundRingTransform != null)
-        {
-            groundRingTransform.position = transform.position + beamDir * maxHeight;
-            Vector3 up = Mathf.Abs(Vector3.Dot(Vector3.up, beamDir)) > 0.9f ? Vector3.forward : Vector3.up;
-            groundRingTransform.rotation = Quaternion.LookRotation(Vector3.up, up);
-            groundRingTransform.localScale = new Vector3(bottomRadius * 2.0f, bottomRadius * 2.0f, 1.0f);
-        }
+        var coneHits = GodRayProjectionHelper.EvaluateConeHits(transform, topRadius, bottomRadius, maxHeight, raycastOffset, groundLayerMask);
+        float targetHeight = coneHits.hasHit ? coneHits.maxHitDistance + raycastOffset : maxHeight;
+        minProjectedHeight = GodRayProjectionHelper.ConfigureProjectedGroundRing(
+            groundRingTransform, groundRingRenderer, coneHits, topRadius, bottomRadius);
 
         if (Mathf.Abs(currentHeight - targetHeight) > 0.01f || generatedConeMesh == null)
         {
             currentHeight = targetHeight; RebuildConeMesh(); UpdateTriggerCollider(); UpdateParticleBounds();
         }
+        UpdateShaderProperties(intensity);
     }
 
     public void RebuildConeMesh()
@@ -223,7 +194,27 @@ public class GodRayBeam : MonoBehaviour
     private void UpdateRendererBlock(Renderer r, float currentIntensity)
     {
         if (r == null) return;
-        r.GetPropertyBlock(propBlock); propBlock.SetColor(TintColorId, rayColor); propBlock.SetFloat(IntensityId, currentIntensity); r.SetPropertyBlock(propBlock);
+        propBlock.Clear();
+        r.GetPropertyBlock(propBlock);
+        propBlock.SetColor(TintColorId, rayColor);
+        propBlock.SetFloat(IntensityId, currentIntensity * suppressionMultiplier);
+        if (r == groundRingRenderer)
+            GodRayProjectionHelper.ApplyProjectionProperties(propBlock, transform, topRadius, bottomRadius, currentHeight, minProjectedHeight);
+        r.SetPropertyBlock(propBlock);
+    }
+
+    public void SetSuppressionMultiplier(float mult)
+    {
+        suppressionMultiplier = Mathf.Clamp01(mult);
+        UpdateShaderProperties(intensity);
+        bool visible = suppressionMultiplier > 0.005f;
+        if (beamMeshRenderer != null) beamMeshRenderer.enabled = visible;
+        if (groundRingRenderer != null) groundRingRenderer.enabled = visible;
+        if (dustParticles != null)
+        {
+            if (!visible && dustParticles.isPlaying) dustParticles.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+            else if (visible && !dustParticles.isPlaying && gameObject.activeInHierarchy) dustParticles.Play(true);
+        }
     }
 
     public void CopyVisualSettingsFrom(GodRayBeam src)
@@ -290,6 +281,7 @@ public class GodRayBeam : MonoBehaviour
         else triggerCollider = null;
         if (dustParticles == null) { Transform p = transform.Find("DustParticles"); if (p != null) dustParticles = p.GetComponent<ParticleSystem>(); }
         if (groundRingTransform == null) { Transform r = transform.Find("GroundRing"); if (r != null) { groundRingTransform = r; groundRingRenderer = r.GetComponent<Renderer>(); } }
+        GodRayProjectionHelper.EnsureCubeVolumeMesh(groundRingTransform, groundRingRenderer);
         if (groundRingRenderer != null && groundRingRenderer.sharedMaterial == null)
         {
             Shader s = Shader.Find("Custom/GodRayGroundRing") ?? Shader.Find("Universal Render Pipeline/Unlit");

@@ -25,14 +25,20 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
+    - _CarveEdgeSoftness: 0.38
+    - _CarveRadiusOffset: 0.2
+    - _CarveRadiusScale: 1
     - _Cutoff: 0.72
     - _FlowSpeed: 0.65
-    - _MinAlpha: 0.55
+    - _MinAlpha: 0.65
+    - _RimStrength: 0.45
     - _VoronoiScale: 1.25
     - _WaveAmplitude: 0.045
     - _WaveSpeed: 1.8
     m_Colors:
+    - _NeutralBodyColor: {r: 0.055, g: 0.06, b: 0.075, a: 1}
+    - _NeutralVeinColor: {r: 0.36, g: 0.38, b: 0.45, a: 1}
     - _NoiseOffset: {r: 0, g: 0, b: 0.2, a: 0}
-    - _ShadowColor: {r: 0.002, g: 0.002, b: 0.002, a: 0.92}
+    - _ShadowColor: {r: 0.055, g: 0.06, b: 0.075, a: 0.94}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

@@ -278,6 +278,10 @@ PrefabInstance:
       propertyPath: rayColor.r
       value: 1
       objectReference: {fileID: 0}
+    - target: {fileID: 8538055181787429183, guid: e61fc530845d0854ca01d5888b7a2abc, type: 3}
+      propertyPath: m_Enabled
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 8899919948920258699, guid: e61fc530845d0854ca01d5888b7a2abc, type: 3}
       propertyPath: m_Name
       value: GodRay_Mystic

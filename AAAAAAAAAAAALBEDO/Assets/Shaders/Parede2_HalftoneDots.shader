@@ -115,6 +115,56 @@ Shader "Custom/URP_Parede2_HalftoneDots"
             }
             ENDHLSL
         }
+
+        Pass
+        {
+            Name "DepthOnly"
+            Tags { "LightMode" = "DepthOnly" }
+            ZWrite On
+            ColorMask R
+            Cull Back
+
+            HLSLPROGRAM
+            #pragma vertex vertDepth
+            #pragma fragment fragDepth
+            #pragma multi_compile_instancing
+            #include "Assets/Shaders/AlbedoDepthPasses.hlsl"
+
+            AlbedoDepthVaryings vertDepth(AlbedoDepthAttributes input) { return AlbedoDepthVert(input, 0.0); }
+            half fragDepth(AlbedoDepthVaryings input) : SV_Target { return DepthOnlyFrag(input); }
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "DepthNormals"
+            Tags { "LightMode" = "DepthNormals" }
+            ZWrite On
+            Cull Back
+
+            HLSLPROGRAM
+            #pragma vertex vertDN
+            #pragma fragment fragDN
+            #pragma multi_compile_instancing
+            #pragma multi_compile_fragment _ _GBUFFER_NORMALS_OCT
+            #pragma multi_compile_fragment _ _WRITE_RENDERING_LAYERS
+            #include "Assets/Shaders/AlbedoDepthPasses.hlsl"
+
+            AlbedoDepthVaryings vertDN(AlbedoDepthAttributes input) { return AlbedoDepthVert(input, 0.0); }
+            void fragDN(AlbedoDepthVaryings input, out half4 outNormalWS : SV_Target0
+            #ifdef _WRITE_RENDERING_LAYERS
+                , out uint outRenderingLayers : SV_Target1
+            #endif
+            )
+            {
+                DepthNormalsFrag(input, outNormalWS
+                #ifdef _WRITE_RENDERING_LAYERS
+                    , outRenderingLayers
+                #endif
+                );
+            }
+            ENDHLSL
+        }
     }
     FallBack "Universal Render Pipeline/Lit"
 }

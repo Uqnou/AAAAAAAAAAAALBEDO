@@ -30,6 +30,8 @@ public static class AlbedoWallLightGlobals
     private static readonly int BeamParamsId = Shader.PropertyToID("_AlbedoBeamParams");
 
     private static bool arraysInitialized = false;
+    private static int activeBeamCount = 0;
+    private static int lastPushFrame = -1;
 
 #if UNITY_EDITOR
     static AlbedoWallLightGlobals()
@@ -109,6 +111,8 @@ public static class AlbedoWallLightGlobals
         {
             if (count >= MaxBeams) break;
             if (p == null || !p.isActiveAndEnabled || !p.IsEmitting) continue;
+            float strength = 1.35f * p.CurrentLightStrength;
+            if (strength <= 0.005f) continue;
 
             Vector3 origin = p.GetBeamWorldOrigin();
             Vector3 dir = p.GetBeamWorldDirection();
@@ -117,7 +121,7 @@ public static class AlbedoWallLightGlobals
             BeamStarts[count] = new Vector4(origin.x, origin.y, origin.z, p.GodRayTopRadius);
             BeamDirs[count] = new Vector4(dir.x, dir.y, dir.z, p.CurrentHitDistance);
             BeamColors[count] = new Vector4(c.r, c.g, c.b, p.GodRayBottomRadius);
-            BeamParams[count] = new Vector4(p.EffectiveMaxLength, 1f, 1.35f, 0f);
+            BeamParams[count] = new Vector4(p.EffectiveMaxLength, 1f, strength, 0f);
             count++;
         }
 
@@ -131,6 +135,11 @@ public static class AlbedoWallLightGlobals
             LightSource parentLs = g.transform.parent != null ? g.transform.parent.GetComponentInParent<LightSource>() : null;
             if ((ls != null && !ls.IsActive) || (parentLs != null && !parentLs.IsActive)) continue;
 
+            float eff = g.EffectiveStrength;
+            if (eff <= 0.005f) continue;
+            float mult = g.Intensity > 0.001f ? (eff / g.Intensity) : 0f;
+            float strength = Mathf.Clamp(g.Intensity * 0.25f, 0.45f, 1.25f) * mult;
+
             Vector3 origin = g.transform.position;
             Vector3 dir = g.BeamDirection.normalized;
             Color c = g.CurrentColor;
@@ -138,9 +147,12 @@ public static class AlbedoWallLightGlobals
             BeamStarts[count] = new Vector4(origin.x, origin.y, origin.z, g.TopRadius);
             BeamDirs[count] = new Vector4(dir.x, dir.y, dir.z, g.CurrentHeight);
             BeamColors[count] = new Vector4(c.r, c.g, c.b, g.BottomRadius);
-            BeamParams[count] = new Vector4(Mathf.Max(g.CurrentHeight, 0.5f), 0f, Mathf.Clamp(g.Intensity * 0.25f, 0.45f, 1.25f), 0f);
+            BeamParams[count] = new Vector4(Mathf.Max(g.CurrentHeight, 0.5f), 0f, strength, 0f);
             count++;
         }
+
+        activeBeamCount = count;
+        if (Application.isPlaying) lastPushFrame = Time.frameCount;
 
         Shader.SetGlobalInt(BeamCountId, count);
         if (count > 0)
@@ -150,6 +162,48 @@ public static class AlbedoWallLightGlobals
             Shader.SetGlobalVectorArray(BeamColorsId, BeamColors);
             Shader.SetGlobalVectorArray(BeamParamsId, BeamParams);
         }
+    }
+
+    public static bool EvaluateCarveAtPoint(
+        Vector3 worldPos, float marginRadius, Color requiredColor, bool enforceExactColor, float colorTolerance,
+        float holeScale = 1f, float holeOffset = 0f)
+    {
+        if (Application.isPlaying && lastPushFrame != Time.frameCount) PushToShaderGlobals();
+        if (activeBeamCount <= 0) return false;
+
+        float maxWeight = 0f;
+        Vector3 accumColor = Vector3.zero;
+        for (int i = 0; i < activeBeamCount; i++)
+        {
+            float strength = BeamParams[i].z;
+            if (strength <= 0.05f) continue;
+            Vector3 origin = new Vector3(BeamStarts[i].x, BeamStarts[i].y, BeamStarts[i].z);
+            Vector3 dir = new Vector3(BeamDirs[i].x, BeamDirs[i].y, BeamDirs[i].z);
+            float hitLen = Mathf.Max(BeamDirs[i].w, 0.001f);
+            Vector3 toP = worldPos - origin;
+            float tProj = Vector3.Dot(toP, dir);
+            if (tProj < -marginRadius || tProj > hitLen + 3.0f) continue;
+
+            float baseConeR = Mathf.Lerp(BeamStarts[i].w, BeamColors[i].w, Mathf.Clamp01(tProj / Mathf.Max(BeamParams[i].x, 0.01f)));
+            float coneRadius = Mathf.Max(0.05f, baseConeR * holeScale + holeOffset) + marginRadius;
+            float radialDist = (toP - dir * tProj).magnitude;
+            if (radialDist > coneRadius + 0.1f) continue;
+
+            float tSmooth = Mathf.Clamp01((radialDist - coneRadius * 0.58f) / Mathf.Max(0.0001f, (coneRadius + 0.1f) - coneRadius * 0.58f));
+            float smooth = tSmooth * tSmooth * (3f - 2f * tSmooth);
+            float w = Mathf.Clamp01((1f - smooth) * Mathf.Clamp01(strength));
+            accumColor += new Vector3(BeamColors[i].x, BeamColors[i].y, BeamColors[i].z) * w;
+            if (w > maxWeight) maxWeight = w;
+        }
+
+        if (maxWeight < 0.25f) return false;
+        if (!enforceExactColor) return true;
+
+        float maxAccum = Mathf.Max(accumColor.x, Mathf.Max(accumColor.y, accumColor.z));
+        Vector3 mixed = maxAccum > 0.0001f ? accumColor / maxAccum : Vector3.one;
+        float maxReq = Mathf.Max(requiredColor.r, Mathf.Max(requiredColor.g, requiredColor.b));
+        Vector3 reqNorm = maxReq > 0.0001f ? new Vector3(requiredColor.r, requiredColor.g, requiredColor.b) / maxReq : Vector3.one;
+        return (Vector3.Distance(mixed, reqNorm) / 1.73205f) <= Mathf.Max(0.05f, colorTolerance);
     }
 }
 

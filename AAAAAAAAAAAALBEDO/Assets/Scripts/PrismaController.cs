@@ -10,14 +10,12 @@ using UnityEngine;
 public class PrismaController : MonoBehaviour
 {
     private static GameObject sharedGodRayPrefabCache;
-
     [Header("Cores")]
     [SerializeField] private AlbedoColorPreset colorPreset = AlbedoColorPreset.Custom;
     [SerializeField] private Color prismColor = Color.white;
     [SerializeField] private PrismColorMode colorMode = PrismColorMode.PrismTint;
     [SerializeField] private bool syncVisualIndicator = false;
     [SerializeField] private int visualMaterialSlot = 1;
-
     [Header("Emissão e Dimensões do God Ray (Prefab)")]
     [SerializeField] private bool emitGodRay = true, customizeGodRaySize = true;
     [SerializeField] private GameObject godRayPrefab;
@@ -44,12 +42,13 @@ public class PrismaController : MonoBehaviour
     private LineRenderer lineRenderer;
     private Light spotlight;
     private Color activeEmittedColor = Color.white;
-    private float currentHitDistance = 20f;
+    private float currentHitDistance = 20f, currentLightStrength = 1f;
     private bool isEmitting = false, isEvaluating = false;
     private GodRayBeam activeSourceGodRay = null;
     public bool IsEmitting => isEmitting; public Color ActiveEmittedColor => activeEmittedColor;
-    public float CurrentHitDistance => currentHitDistance; public float GodRayTopRadius => godRayTopRadius;
-    public float GodRayBottomRadius => godRayBottomRadius; public float EffectiveMaxLength => customizeGodRaySize ? godRayLength : beamRange;
+    public float CurrentHitDistance => currentHitDistance; public float CurrentLightStrength => isEmitting ? currentLightStrength : 0f;
+    public float GodRayTopRadius => godRayTopRadius; public float GodRayBottomRadius => godRayBottomRadius;
+    public float EffectiveMaxLength => customizeGodRaySize ? godRayLength : beamRange;
     public GodRayBeam PrismGodRay => prismGodRay; public GameObject GodRayPrefab { get => godRayPrefab; set => godRayPrefab = value; }
     public Color EffectivePrismColor => AlbedoColorUtility.PresetToColor(colorPreset, prismColor);
     public AlbedoColorPreset ColorPreset { get => colorPreset; set { colorPreset = value; SyncPresetColor(); } }
@@ -151,18 +150,19 @@ public class PrismaController : MonoBehaviour
                 for (int i = 0; i < tempRemoveBuffer.Count; i++) lightLayerHits.Remove((Collider)tempRemoveBuffer[i]);
             }
             incomingColorBuffer.Clear();
-            foreach (var l in activeLights) if (l != null && l.IsActive) incomingColorBuffer.Add(l.LightColor);
-            foreach (var p in incomingPrisms) if (p != null && p != this && p.IsEmitting) incomingColorBuffer.Add(p.ActiveEmittedColor);
+            float maxStrength = 0f;
+            foreach (var l in activeLights) if (l != null && l.IsActive) { incomingColorBuffer.Add(l.LightColor); maxStrength = Mathf.Max(maxStrength, l.LightFactor); }
+            foreach (var p in incomingPrisms) if (p != null && p != this && p.IsEmitting) { incomingColorBuffer.Add(p.ActiveEmittedColor); maxStrength = Mathf.Max(maxStrength, p.CurrentLightStrength); }
             if (incomingColorBuffer.Count == 0 && lightLayerHits.Count > 0)
                 foreach (var kvp in lightLayerHits)
                 {
                     if (kvp.Key == null || !kvp.Key.gameObject.activeInHierarchy) continue;
                     LightSource ls = kvp.Key.GetComponent<LightSource>() ?? kvp.Key.GetComponentInParent<LightSource>();
-                    if (ls == null || ls.IsActive) incomingColorBuffer.Add(AlbedoColorUtility.TryExtractObjectColor(kvp.Key.gameObject, out Color c) ? c : kvp.Value);
+                    if (ls == null || ls.IsActive) { incomingColorBuffer.Add(AlbedoColorUtility.TryExtractObjectColor(kvp.Key.gameObject, out Color c) ? c : kvp.Value); maxStrength = Mathf.Max(maxStrength, ls != null ? ls.LightFactor : 1f); }
                 }
             if (incomingColorBuffer.Count > 0)
             {
-                isEmitting = true; RefreshSourceGodRay();
+                isEmitting = true; currentLightStrength = Mathf.Clamp01(maxStrength); RefreshSourceGodRay();
                 activeEmittedColor = ComputeEmittedColor(EffectivePrismColor, AlbedoColorUtility.CombineAdditive(incomingColorBuffer), colorMode);
                 UpdateBeamAndTargets();
             }
@@ -218,19 +218,19 @@ public class PrismaController : MonoBehaviour
             if (!prismGodRay.gameObject.activeSelf) prismGodRay.gameObject.SetActive(true);
             NormalizeGodRayScale(); if (customizeGodRaySize) prismGodRay.SetDimensions(godRayTopRadius, godRayBottomRadius, godRayLength);
             prismGodRay.transform.position = origin; prismGodRay.transform.rotation = Quaternion.FromToRotation(Vector3.down, dir);
-            prismGodRay.SetColor(activeEmittedColor); prismGodRay.UpdateHeightWithRaycast();
+            prismGodRay.SetColor(activeEmittedColor); prismGodRay.SetSuppressionMultiplier(currentLightStrength); prismGodRay.UpdateHeightWithRaycast();
         }
         if (lineRenderer != null && (lineRenderer.enabled = !emitGodRay || useLineRendererWithGodRay))
         {
             lineRenderer.SetPosition(0, origin); lineRenderer.SetPosition(1, endPoint);
             lineRenderer.colorGradient = new Gradient { colorKeys = new[] { new GradientColorKey(activeEmittedColor, 0f), new GradientColorKey(activeEmittedColor, 1f) }, alphaKeys = new[] { new GradientAlphaKey(0.85f, 0f), new GradientAlphaKey(0.4f, 1f) } };
         }
-        if (spotlight != null) { spotlight.enabled = true; spotlight.color = activeEmittedColor; spotlight.intensity = spotlightIntensity; spotlight.range = hitDist + 2f; spotlight.transform.rotation = Quaternion.LookRotation(dir); }
+        if (spotlight != null) { spotlight.enabled = true; spotlight.color = activeEmittedColor; spotlight.intensity = spotlightIntensity * currentLightStrength; spotlight.range = hitDist + 2f; spotlight.transform.rotation = Quaternion.LookRotation(dir); }
     }
 
     public void StopEmissionImmediately()
     {
-        isEmitting = false;
+        isEmitting = false; currentLightStrength = 0f;
         if (prismGodRay != null) prismGodRay.gameObject.SetActive(false);
         if (lineRenderer != null) lineRenderer.enabled = false;
         if (spotlight != null) spotlight.enabled = false;

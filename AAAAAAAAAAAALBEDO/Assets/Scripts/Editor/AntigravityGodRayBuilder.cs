@@ -109,7 +109,7 @@ public static class AntigravityGodRayBuilder
         GameObject ringObj;
         if (ringTransform == null)
         {
-            ringObj = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            ringObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
             ringObj.name = "GroundRing";
             ringObj.transform.SetParent(rayObj.transform);
             Collider ringCol = ringObj.GetComponent<Collider>();

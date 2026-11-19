@@ -2,7 +2,19 @@ Shader "Custom/URP_StylizedShadow"
 {
     Properties
     {
-        _ShadowColor ("Shadow Color", Color) = (0.002, 0.002, 0.002, 0.92)
+        _ShadowColor ("Shadow Color", Color) = (0.055, 0.06, 0.075, 0.94)
+        _NeutralBodyColor ("Neutral Body Color", Color) = (0.055, 0.06, 0.075, 1.0)
+        _NeutralVeinColor ("Neutral Vein Color", Color) = (0.36, 0.38, 0.45, 1.0)
+        _RimStrength ("Rim Edge Visibility", Range(0.0, 1.0)) = 0.45
+        _TintColor ("Required Color Tint", Color) = (0.0, 0.0, 0.0, 0.0)
+        _ColorTintStrength ("Color Body Strength", Range(0.0, 1.0)) = 0.45
+        _VeinTintStrength ("Color Vein Strength", Range(0.0, 1.0)) = 0.92
+        [PerRendererData] _RequiredColor ("Required Light Color (A=EnforceExact)", Color) = (1.0, 1.0, 1.0, 0.0)
+        [PerRendererData] _ColorTolerance ("Color Match Tolerance", Float) = 0.28
+        _CarveRadiusScale ("Hole Size Multiplier", Range(0.1, 4.0)) = 1.0
+        _CarveRadiusOffset ("Hole Radius Offset (m)", Range(-2.0, 5.0)) = 0.2
+        _CarveEdgeSoftness ("Hole Edge Softness", Range(0.05, 0.95)) = 0.38
+        [PerRendererData] _InstanceCarveParams ("Instance Carve Params", Vector) = (1.0, 0.0, 1.0, 0.0)
         _VoronoiScale ("Voronoi Scale", Float) = 1.25
         _NoiseOffset ("Noise Offset", Vector) = (0.0, 0.0, 0.2, 0.0)
         _Cutoff ("Threshold", Range(0.0, 1.0)) = 0.72
@@ -14,10 +26,10 @@ Shader "Custom/URP_StylizedShadow"
 
     SubShader
     {
-        Tags 
-        { 
-            "RenderType" = "Transparent" 
-            "Queue" = "Transparent" 
+        Tags
+        {
+            "RenderType" = "Transparent"
+            "Queue" = "Transparent"
             "RenderPipeline" = "UniversalPipeline"
         }
         LOD 200
@@ -36,6 +48,14 @@ Shader "Custom/URP_StylizedShadow"
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
+            #define ALBEDO_MAX_BEAMS 24
+
+            int _AlbedoBeamCount;
+            float4 _AlbedoBeamStarts[ALBEDO_MAX_BEAMS]; // xyz = originWS, w = topRadius
+            float4 _AlbedoBeamDirs[ALBEDO_MAX_BEAMS];   // xyz = dirWS, w = hitLength
+            float4 _AlbedoBeamColors[ALBEDO_MAX_BEAMS]; // rgb = color, w = bottomRadius
+            float4 _AlbedoBeamParams[ALBEDO_MAX_BEAMS]; // x = fullConeLength, y = isPrismBeam, z = strength
+
             struct Attributes
             {
                 float4 positionOS : POSITION;
@@ -46,10 +66,24 @@ Shader "Custom/URP_StylizedShadow"
             {
                 float4 positionCS : SV_POSITION;
                 float3 positionOS : TEXCOORD0;
+                float3 positionWS : TEXCOORD1;
+                float3 normalWS : TEXCOORD2;
             };
 
             CBUFFER_START(UnityPerMaterial)
                 half4 _ShadowColor;
+                half4 _NeutralBodyColor;
+                half4 _NeutralVeinColor;
+                float _RimStrength;
+                half4 _TintColor;
+                half _ColorTintStrength;
+                half _VeinTintStrength;
+                half4 _RequiredColor;
+                float _ColorTolerance;
+                float _CarveRadiusScale;
+                float _CarveRadiusOffset;
+                float _CarveEdgeSoftness;
+                float4 _InstanceCarveParams;
                 float _VoronoiScale;
                 float4 _NoiseOffset;
                 float _Cutoff;
@@ -90,6 +124,69 @@ Shader "Custom/URP_StylizedShadow"
                 return minDist;
             }
 
+            float EvaluateShadowCarve(float3 positionWS, out float3 outLightColor)
+            {
+                float maxWeight = 0.0;
+                float3 accumColor = float3(0.0, 0.0, 0.0);
+                int beamCount = min(_AlbedoBeamCount, ALBEDO_MAX_BEAMS);
+
+                [loop] for (int i = 0; i < beamCount; i++)
+                {
+                    float strength = _AlbedoBeamParams[i].z;
+                    if (strength <= 0.001) continue;
+
+                    float3 origin = _AlbedoBeamStarts[i].xyz;
+                    float topRadius = _AlbedoBeamStarts[i].w;
+                    float3 dir = _AlbedoBeamDirs[i].xyz;
+                    float hitLen = max(_AlbedoBeamDirs[i].w, 0.001);
+                    float3 beamCol = _AlbedoBeamColors[i].rgb;
+                    float bottomRadius = _AlbedoBeamColors[i].w;
+                    float fullLen = max(_AlbedoBeamParams[i].x, 0.01);
+
+                    float3 toP = positionWS - origin;
+                    float tProj = dot(toP, dir);
+                    if (tProj < -0.45 || tProj > hitLen + 3.0) continue;
+
+                    float scaleMult = _CarveRadiusScale * (_InstanceCarveParams.w > 0.5 ? _InstanceCarveParams.x : 1.0);
+                    float radOffset = _CarveRadiusOffset + (_InstanceCarveParams.w > 0.5 ? _InstanceCarveParams.y : 0.0);
+                    float softness = clamp(_CarveEdgeSoftness * (_InstanceCarveParams.w > 0.5 ? _InstanceCarveParams.z : 1.0), 0.04, 0.95);
+                    float baseConeRadius = lerp(topRadius, bottomRadius, saturate(tProj / fullLen));
+                    float coneRadius = max(0.05, baseConeRadius * scaleMult + radOffset);
+                    float radialDist = length(toP - dir * tProj);
+                    float radialMask = 1.0 - smoothstep(coneRadius * (1.0 - softness), coneRadius + 0.2, radialDist);
+                    if (radialMask <= 0.001) continue;
+
+                    float longMask = smoothstep(-0.45, 0.08, tProj)
+                                   * (1.0 - smoothstep(hitLen + 1.8, hitLen + 3.0, tProj));
+                    float w = radialMask * longMask * saturate(strength);
+
+                    accumColor += beamCol * w;
+                    maxWeight = max(maxWeight, w);
+                }
+
+                if (maxWeight <= 0.001)
+                {
+                    outLightColor = float3(0.0, 0.0, 0.0);
+                    return 0.0;
+                }
+
+                float maxAccum = max(accumColor.r, max(accumColor.g, accumColor.b));
+                float3 mixedColor = maxAccum > 0.0001 ? (accumColor / maxAccum) : float3(1.0, 1.0, 1.0);
+                outLightColor = mixedColor;
+
+                if (_RequiredColor.a > 0.5)
+                {
+                    float maxReq = max(_RequiredColor.r, max(_RequiredColor.g, _RequiredColor.b));
+                    float3 reqNorm = maxReq > 0.0001 ? (_RequiredColor.rgb / maxReq) : float3(1.0, 1.0, 1.0);
+                    float dist = distance(mixedColor, reqNorm) / 1.73205;
+                    float tol = max(_ColorTolerance, 0.05);
+                    float colorMatch = 1.0 - smoothstep(tol * 0.75, tol * 1.15, dist);
+                    return saturate(maxWeight * colorMatch);
+                }
+
+                return saturate(maxWeight);
+            }
+
             Varyings vert(Attributes input)
             {
                 Varyings output;
@@ -102,6 +199,8 @@ Shader "Custom/URP_StylizedShadow"
                 VertexPositionInputs vertexInputs = GetVertexPositionInputs(pos);
                 output.positionCS = vertexInputs.positionCS;
                 output.positionOS = pos;
+                output.positionWS = vertexInputs.positionWS;
+                output.normalWS = TransformObjectToWorldNormal(input.normalOS);
                 return output;
             }
 
@@ -117,9 +216,32 @@ Shader "Custom/URP_StylizedShadow"
                 float3 objCoord = input.positionOS + _NoiseOffset.xyz + warp + float3(0.0, t * 0.35, t * 0.15);
                 float dist = Voronoi3D(objCoord * _VoronoiScale, t * 1.4);
                 float voronoiMask = smoothstep(_Cutoff, 0.0, dist);
-                float alpha = lerp(_MinAlpha, 1.0, voronoiMask) * _ShadowColor.a;
+                float baseAlpha = lerp(_MinAlpha, 1.0, voronoiMask) * _ShadowColor.a;
 
-                return half4(_ShadowColor.rgb, saturate(alpha));
+                float3 viewDirWS = GetWorldSpaceNormalizeViewDir(input.positionWS);
+                float3 nWS = normalize(input.normalWS);
+                float fresnel = pow(1.0 - saturate(abs(dot(nWS, viewDirWS))), 2.2);
+
+                half3 neutralBody = lerp(_NeutralBodyColor.rgb, _NeutralVeinColor.rgb, (half)(voronoiMask * 0.85));
+                neutralBody += _NeutralVeinColor.rgb * (half)(fresnel * _RimStrength);
+
+                half3 darkBody = lerp(_ShadowColor.rgb, _TintColor.rgb * 0.28h, _ColorTintStrength);
+                half3 coloredVeins = _TintColor.rgb * _VeinTintStrength;
+                half3 tintedRGB = lerp(darkBody, coloredVeins, (half)voronoiMask)
+                                + _TintColor.rgb * (half)(fresnel * _RimStrength * 0.75);
+
+                half3 finalRGB = lerp(neutralBody, tintedRGB, saturate(_TintColor.a));
+
+                float3 lightCol;
+                float carve = EvaluateShadowCarve(input.positionWS, lightCol);
+                float noisyCarve = smoothstep(0.12, 0.78, carve + (dist - 0.45) * 0.22 * step(0.02, carve));
+                float holeEdge = smoothstep(0.05, 0.35, noisyCarve) * (1.0 - smoothstep(0.62, 0.95, noisyCarve));
+
+                finalRGB += (half3)max(lightCol, float3(0.45, 0.5, 0.6)) * (half)(holeEdge * 0.85);
+                float finalAlpha = baseAlpha * (1.0 - noisyCarve);
+                clip(finalAlpha - 0.02);
+
+                return half4(finalRGB, saturate(finalAlpha));
             }
             ENDHLSL
         }

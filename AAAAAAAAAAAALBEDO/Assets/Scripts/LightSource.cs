@@ -21,6 +21,8 @@ public class LightSource : MonoBehaviour
     [SerializeField] private bool ensureTriggerCollider = true;
 
     [Header("Eventos de Fogo Negro")]
+    [SerializeField, Tooltip("Duração (em segundos) para apagar ou reacender gradualmente.")]
+    private float suppressionFadeDuration = 1.35f;
     public UnityEvent onLightSuppressed = new UnityEvent();
     public UnityEvent onLightRestored = new UnityEvent();
 
@@ -30,10 +32,15 @@ public class LightSource : MonoBehaviour
     private GodRayBeam[] linkedGodRays;
     private bool isSuppressed = false;
     private bool originalLightEnabled = true;
+    private float baseUnityLightIntensity = 1f;
+    private bool cachedUnityLightDefaults = false;
+    private float currentLightFactor = 1f;
+    private float lastAppliedFactor = 1f;
 
     public Color LightColor => lightColor;
     public bool IsSuppressed => isSuppressed;
-    public bool IsActive => enabled && gameObject.activeInHierarchy && !isSuppressed;
+    public float LightFactor => currentLightFactor;
+    public bool IsActive => enabled && gameObject.activeInHierarchy && currentLightFactor > 0.08f;
 
     private void Awake()
     {
@@ -73,9 +80,11 @@ public class LightSource : MonoBehaviour
         unityLight = GetComponent<Light>();
         if (unityLight != null)
         {
-            if (!isSuppressed)
+            if (!cachedUnityLightDefaults)
             {
                 originalLightEnabled = unityLight.enabled;
+                baseUnityLightIntensity = unityLight.intensity;
+                cachedUnityLightDefaults = true;
             }
             if (syncWithUnityLight)
             {
@@ -148,19 +157,29 @@ public class LightSource : MonoBehaviour
     private void ApplySuppressedState(bool suppressed)
     {
         isSuppressed = suppressed;
+        if (!Application.isPlaying)
+        {
+            currentLightFactor = suppressed ? 0f : 1f;
+            ApplyLightFactor();
+        }
+        if (suppressed) onLightSuppressed?.Invoke();
+        else onLightRestored?.Invoke();
+    }
 
+    private void ApplyLightFactor()
+    {
+        lastAppliedFactor = currentLightFactor;
         if (unityLight == null) unityLight = GetComponent<Light>();
         if (unityLight != null)
         {
-            if (suppressed)
+            if (!cachedUnityLightDefaults)
             {
                 originalLightEnabled = unityLight.enabled;
-                unityLight.enabled = false;
+                baseUnityLightIntensity = unityLight.intensity;
+                cachedUnityLightDefaults = true;
             }
-            else
-            {
-                unityLight.enabled = originalLightEnabled;
-            }
+            unityLight.intensity = baseUnityLightIntensity * currentLightFactor;
+            unityLight.enabled = originalLightEnabled && currentLightFactor > 0.005f;
         }
 
         if (linkedGodRays == null || linkedGodRays.Length == 0)
@@ -168,21 +187,9 @@ public class LightSource : MonoBehaviour
 
         if (linkedGodRays != null)
         {
-            foreach (var gr in linkedGodRays)
-            {
-                if (gr == null) continue;
-                if (gr.BeamMeshRenderer != null) gr.BeamMeshRenderer.enabled = !suppressed;
-                if (gr.GroundRingRenderer != null) gr.GroundRingRenderer.enabled = !suppressed;
-                if (gr.DustParticles != null)
-                {
-                    if (suppressed) gr.DustParticles.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-                    else if (gr.gameObject.activeInHierarchy) gr.DustParticles.Play(true);
-                }
-            }
+            for (int i = 0; i < linkedGodRays.Length; i++)
+                if (linkedGodRays[i] != null) linkedGodRays[i].SetSuppressionMultiplier(currentLightFactor);
         }
-
-        if (suppressed) onLightSuppressed?.Invoke();
-        else onLightRestored?.Invoke();
     }
 
     private void Update()
@@ -190,20 +197,28 @@ public class LightSource : MonoBehaviour
         if (isSuppressed)
         {
             CleanupDeadSuppressors();
-            if (activeSuppressors.Count == 0)
-            {
-                ApplySuppressedState(false);
-            }
+            if (activeSuppressors.Count == 0) ApplySuppressedState(false);
+        }
+
+        float target = isSuppressed ? 0f : 1f;
+        if (Mathf.Abs(currentLightFactor - target) > 0.0005f)
+        {
+            float step = Time.deltaTime / Mathf.Max(0.05f, suppressionFadeDuration);
+            currentLightFactor = Mathf.MoveTowards(currentLightFactor, target, step);
+            ApplyLightFactor();
+        }
+        else if (Mathf.Abs(lastAppliedFactor - currentLightFactor) > 0.0005f)
+        {
+            ApplyLightFactor();
         }
     }
 
     private void OnDisable()
     {
         activeSuppressors.Clear();
-        if (isSuppressed)
-        {
-            ApplySuppressedState(false);
-        }
+        isSuppressed = false;
+        currentLightFactor = 1f;
+        ApplyLightFactor();
     }
 
     private void OnDrawGizmos()

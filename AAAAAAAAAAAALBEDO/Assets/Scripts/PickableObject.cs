@@ -14,6 +14,15 @@ public class PickableObject : MonoBehaviour
     [Tooltip("Zera velocidades ao soltar para o objeto não sair rolando após mirar.")]
     [SerializeField] private bool settleOnDrop = true;
 
+    [Tooltip("Se ativo, mantém o objeto reto em pé (eixo Y local para cima) na mão do jogador, ignorando a inclinação inicial da cena.")]
+    [SerializeField] private bool standUprightWhenHeld = false;
+
+    public bool StandUprightWhenHeld
+    {
+        get => standUprightWhenHeld;
+        set { standUprightWhenHeld = value; if (value) uprightTiltOffset = Quaternion.identity; }
+    }
+
     private Rigidbody rb;
     private Collider col;
     private InteractionPrompt prompt;
@@ -28,6 +37,12 @@ public class PickableObject : MonoBehaviour
     {
         rb = GetComponent<Rigidbody>();
         col = GetComponent<Collider>();
+        if (GetComponent<TorchController>() != null
+            || gameObject.name.IndexOf("Tocha", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || string.Equals(gameObject.name, "Cylinder.003", System.StringComparison.OrdinalIgnoreCase))
+        {
+            standUprightWhenHeld = true;
+        }
         CaptureInitialTilt();
 
         if (lockTiltWhenDropped && rb != null)
@@ -39,6 +54,11 @@ public class PickableObject : MonoBehaviour
         if (prompt == null)
         {
             prompt = gameObject.AddComponent<InteractionPrompt>();
+        }
+
+        if (GetComponent<ItemProximityGlow>() == null)
+        {
+            gameObject.AddComponent<ItemProximityGlow>();
         }
 
         if (Application.isPlaying)
@@ -58,6 +78,12 @@ public class PickableObject : MonoBehaviour
     {
         if (tiltCaptured) return;
         tiltCaptured = true;
+
+        if (standUprightWhenHeld)
+        {
+            uprightTiltOffset = Quaternion.identity;
+            return;
+        }
 
         float currentYaw = transform.rotation.eulerAngles.y;
         uprightTiltOffset = Quaternion.Inverse(Quaternion.Euler(0f, currentYaw, 0f)) * transform.rotation;
@@ -133,7 +159,8 @@ public class PickableObject : MonoBehaviour
     {
         if (currentHoldPoint == null) return;
         float baseYaw = currentHoldPoint.eulerAngles.y;
-        transform.rotation = Quaternion.Euler(0f, baseYaw + holdYawOffset, 0f) * uprightTiltOffset;
+        Quaternion tilt = standUprightWhenHeld ? Quaternion.identity : uprightTiltOffset;
+        transform.rotation = Quaternion.Euler(0f, baseYaw + holdYawOffset, 0f) * tilt;
     }
 
     public void Drop(Vector3 throwForce)

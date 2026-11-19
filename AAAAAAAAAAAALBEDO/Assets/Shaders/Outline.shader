@@ -62,6 +62,70 @@ Shader "Custom/URP_Outline"
             }
             ENDHLSL
         }
+
+        Pass
+        {
+            Name "DepthOnly"
+            Tags { "LightMode" = "DepthOnly" }
+            Cull Back
+            ZWrite On
+            ColorMask R
+            Offset -2, -2
+
+            HLSLPROGRAM
+            #pragma vertex vertDepth
+            #pragma fragment fragDepth
+            #pragma multi_compile_instancing
+            #include "Assets/Shaders/AlbedoDepthPasses.hlsl"
+
+            CBUFFER_START(UnityPerMaterial)
+                half4 _Color;
+                half _Brightness;
+                float _Extrude;
+            CBUFFER_END
+
+            AlbedoDepthVaryings vertDepth(AlbedoDepthAttributes input) { return AlbedoDepthVert(input, _Extrude); }
+            half fragDepth(AlbedoDepthVaryings input) : SV_Target { return DepthOnlyFrag(input); }
+            ENDHLSL
+        }
+
+        Pass
+        {
+            Name "DepthNormals"
+            Tags { "LightMode" = "DepthNormals" }
+            Cull Back
+            ZWrite On
+            Offset -2, -2
+
+            HLSLPROGRAM
+            #pragma vertex vertDN
+            #pragma fragment fragDN
+            #pragma multi_compile_instancing
+            #pragma multi_compile_fragment _ _GBUFFER_NORMALS_OCT
+            #pragma multi_compile_fragment _ _WRITE_RENDERING_LAYERS
+            #include "Assets/Shaders/AlbedoDepthPasses.hlsl"
+
+            CBUFFER_START(UnityPerMaterial)
+                half4 _Color;
+                half _Brightness;
+                float _Extrude;
+            CBUFFER_END
+
+            AlbedoDepthVaryings vertDN(AlbedoDepthAttributes input) { return AlbedoDepthVert(input, _Extrude); }
+            void fragDN(AlbedoDepthVaryings input, out half4 outNormalWS : SV_Target0
+            #ifdef _WRITE_RENDERING_LAYERS
+                , out uint outRenderingLayers : SV_Target1
+            #endif
+            )
+            {
+                DepthNormalsFrag(input, outNormalWS
+                #ifdef _WRITE_RENDERING_LAYERS
+                    , outRenderingLayers
+                #endif
+                );
+            }
+            ENDHLSL
+        }
     }
     FallBack Off
 }

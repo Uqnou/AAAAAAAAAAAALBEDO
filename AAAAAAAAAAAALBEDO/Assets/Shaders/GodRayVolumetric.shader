@@ -53,6 +53,7 @@ Shader "Custom/GodRayVolumetric"
                 float3 positionWS   : TEXCOORD1;
                 float3 normalWS     : TEXCOORD2;
                 float4 screenPos    : TEXCOORD3;
+                float4 clipPosCopy  : TEXCOORD4;
             };
 
             CBUFFER_START(UnityPerMaterial)
@@ -77,6 +78,7 @@ Shader "Custom/GodRayVolumetric"
                 output.normalWS = normInputs.normalWS;
                 output.uv = input.uv;
                 output.screenPos = ComputeScreenPos(output.positionCS);
+                output.clipPosCopy = output.positionCS;
 
                 return output;
             }
@@ -91,13 +93,26 @@ Shader "Custom/GodRayVolumetric"
                 float rim = 1.0 - saturate(abs(dot(normalize(input.normalWS), viewDirWS)));
                 rim = pow(rim, _RimPower);
 
-                // 3. Soft Depth Fade com o chão e obstáculos
-                float2 screenUV = input.screenPos.xy / max(input.screenPos.w, 0.00001);
-                float sceneRawDepth = SampleSceneDepth(screenUV);
-                float sceneLinearDepth = LinearEyeDepth(sceneRawDepth, _ZBufferParams);
-                float objectLinearDepth = input.screenPos.w;
-                float depthDiff = max(0.0, sceneLinearDepth - objectLinearDepth);
-                float depthFade = saturate(depthDiff / max(_DepthFadeDistance, 0.001));
+                // 3. Soft Depth Fade com o chão e obstáculos (compatível com câmera ortográfica e perspectiva)
+                float sceneRawDepth = LoadSceneDepth(uint2(input.positionCS.xy));
+                #if UNITY_REVERSED_Z
+                    bool isSky = sceneRawDepth <= 0.00001;
+                #else
+                    bool isSky = sceneRawDepth >= 0.99999;
+                #endif
+                float depthFade = 1.0;
+                if (!isSky)
+                {
+                    #if !UNITY_REVERSED_Z
+                        float deviceDepth = sceneRawDepth * 2.0 - 1.0;
+                    #else
+                        float deviceDepth = sceneRawDepth;
+                    #endif
+                    float2 clipXY = input.clipPosCopy.xy / max(abs(input.clipPosCopy.w), 0.00001);
+                    float3 scenePosWS = ComputeWorldSpacePosition(float4(clipXY, deviceDepth, 1.0), UNITY_MATRIX_I_VP);
+                    float depthDiff = max(0.0, dot(scenePosWS - input.positionWS, GetViewForwardDir()));
+                    depthFade = saturate(depthDiff / max(_DepthFadeDistance, 0.001));
+                }
 
                 // 4. Combinação Final (suaviza mais quando a cor é branca/neutra)
                 half maxC = max(_TintColor.r, max(_TintColor.g, _TintColor.b));
