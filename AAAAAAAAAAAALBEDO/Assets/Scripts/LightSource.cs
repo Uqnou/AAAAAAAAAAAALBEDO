@@ -30,6 +30,7 @@ public class LightSource : MonoBehaviour
     private Collider col;
     private Light unityLight;
     private GodRayBeam[] linkedGodRays;
+    private LightSource[] childLightSources;
     private bool isSuppressed = false;
     private bool originalLightEnabled = true;
     private float baseUnityLightIntensity = 1f;
@@ -93,6 +94,7 @@ public class LightSource : MonoBehaviour
         }
 
         linkedGodRays = GetComponentsInChildren<GodRayBeam>(true);
+        childLightSources = GetComponentsInChildren<LightSource>(true);
         if (syncWithUnityLight && linkedGodRays != null)
         {
             foreach (var gr in linkedGodRays)
@@ -136,6 +138,18 @@ public class LightSource : MonoBehaviour
             if (activeSuppressors.Count == 0 && isSuppressed)
             {
                 ApplySuppressedState(false);
+            }
+        }
+
+        if (childLightSources != null)
+        {
+            for (int i = 0; i < childLightSources.Length; i++)
+            {
+                LightSource child = childLightSources[i];
+                if (child != null && child != this && child.transform.parent == transform)
+                {
+                    child.SetSuppressed(suppressed, source);
+                }
             }
         }
     }

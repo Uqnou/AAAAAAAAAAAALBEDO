@@ -3,8 +3,8 @@ Shader "Custom/URP_StylizedShadow"
     Properties
     {
         _ShadowColor ("Shadow Color", Color) = (0.055, 0.06, 0.075, 0.94)
-        _NeutralBodyColor ("Neutral Body Color", Color) = (0.055, 0.06, 0.075, 1.0)
-        _NeutralVeinColor ("Neutral Vein Color", Color) = (0.36, 0.38, 0.45, 1.0)
+        _NeutralBodyColor ("Neutral Body Color", Color) = (0.025, 0.028, 0.038, 1.0)
+        _NeutralVeinColor ("Neutral Vein Color", Color) = (0.15, 0.165, 0.21, 1.0)
         _RimStrength ("Rim Edge Visibility", Range(0.0, 1.0)) = 0.45
         _TintColor ("Required Color Tint", Color) = (0.0, 0.0, 0.0, 0.0)
         _ColorTintStrength ("Color Body Strength", Range(0.0, 1.0)) = 0.45
@@ -129,9 +129,11 @@ Shader "Custom/URP_StylizedShadow"
                 float maxWeight = 0.0;
                 float3 accumColor = float3(0.0, 0.0, 0.0);
                 int beamCount = min(_AlbedoBeamCount, ALBEDO_MAX_BEAMS);
+                bool ignorePrismBeams = _InstanceCarveParams.w > 1.5;
 
                 [loop] for (int i = 0; i < beamCount; i++)
                 {
+                    if (ignorePrismBeams && _AlbedoBeamParams[i].y > 0.5) continue;
                     float strength = _AlbedoBeamParams[i].z;
                     if (strength <= 0.001) continue;
 
@@ -225,10 +227,10 @@ Shader "Custom/URP_StylizedShadow"
                 half3 neutralBody = lerp(_NeutralBodyColor.rgb, _NeutralVeinColor.rgb, (half)(voronoiMask * 0.85));
                 neutralBody += _NeutralVeinColor.rgb * (half)(fresnel * _RimStrength);
 
-                half3 darkBody = lerp(_ShadowColor.rgb, _TintColor.rgb * 0.28h, _ColorTintStrength);
+                half3 darkBody = lerp(_ShadowColor.rgb, _TintColor.rgb * 0.35h, _ColorTintStrength);
                 half3 coloredVeins = _TintColor.rgb * _VeinTintStrength;
                 half3 tintedRGB = lerp(darkBody, coloredVeins, (half)voronoiMask)
-                                + _TintColor.rgb * (half)(fresnel * _RimStrength * 0.75);
+                                + _TintColor.rgb * (half)(fresnel * _RimStrength * 0.85);
 
                 half3 finalRGB = lerp(neutralBody, tintedRGB, saturate(_TintColor.a));
 

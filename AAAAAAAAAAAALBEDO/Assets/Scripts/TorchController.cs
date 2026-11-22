@@ -21,7 +21,7 @@ public class TorchController : MonoBehaviour
     [SerializeField] private Material blackFireMaterial;
 
     [Tooltip("Raio em que a tocha apaga/suprime fontes de luz (LightSource).")]
-    [SerializeField] private float suppressionRadius = 7.5f;
+    [SerializeField] private float suppressionRadius = 5.5f;
 
     [Header("Eventos")]
     public UnityEvent onIgnited = new UnityEvent();

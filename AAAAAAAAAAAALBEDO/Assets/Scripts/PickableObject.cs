@@ -28,8 +28,12 @@ public class PickableObject : MonoBehaviour
     private InteractionPrompt prompt;
     private Quaternion uprightTiltOffset = Quaternion.identity;
     private float holdYawOffset = 0f;
+    private float heldWorldYaw = 0f;
+    private bool maintainWorldYawWhileHeld = false;
     private Transform currentHoldPoint;
     private bool tiltCaptured = false;
+    private Vector3 safeRespawnPosition;
+    private Quaternion safeRespawnRotation;
 
     public bool IsPickedUp { get; private set; } = false;
 
@@ -37,6 +41,8 @@ public class PickableObject : MonoBehaviour
     {
         rb = GetComponent<Rigidbody>();
         col = GetComponent<Collider>();
+        safeRespawnPosition = transform.position;
+        safeRespawnRotation = transform.rotation;
         if (GetComponent<TorchController>() != null
             || gameObject.name.IndexOf("Tocha", System.StringComparison.OrdinalIgnoreCase) >= 0
             || string.Equals(gameObject.name, "Cylinder.003", System.StringComparison.OrdinalIgnoreCase))
@@ -110,6 +116,8 @@ public class PickableObject : MonoBehaviour
         CaptureInitialTilt();
         currentHoldPoint = holdPoint;
         holdYawOffset = 0f;
+        maintainWorldYawWhileHeld = GetComponent<PrismaController>() != null;
+        heldWorldYaw = holdPoint != null ? holdPoint.eulerAngles.y : transform.eulerAngles.y;
         IsPickedUp = true;
 
         if (prompt != null)
@@ -132,18 +140,34 @@ public class PickableObject : MonoBehaviour
     }
 
     /// <summary>
-    /// Rotaciona o objeto no eixo vertical (Y global) enquanto estiver segurado (teclas Q / R).
+    /// Rotaciona o objeto no eixo vertical (Y global) enquanto estiver segurado (teclas Q / R ou roda do mouse).
     /// </summary>
     public void RotateY(float deltaDegrees)
     {
         if (IsPickedUp && currentHoldPoint != null)
         {
-            holdYawOffset += deltaDegrees;
+            if (maintainWorldYawWhileHeld) heldWorldYaw += deltaDegrees;
+            else holdYawOffset += deltaDegrees;
             ApplyHoldRotation();
         }
         else
         {
             transform.Rotate(Vector3.up, deltaDegrees, Space.World);
+        }
+    }
+
+    private void Update()
+    {
+        if (!Application.isPlaying || IsPickedUp) return;
+
+        if (transform.position.y < -3.5f)
+        {
+            if (rb != null && !rb.isKinematic)
+            {
+                rb.linearVelocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+            }
+            transform.SetPositionAndRotation(safeRespawnPosition + Vector3.up * 0.25f, safeRespawnRotation);
         }
     }
 
@@ -158,9 +182,9 @@ public class PickableObject : MonoBehaviour
     private void ApplyHoldRotation()
     {
         if (currentHoldPoint == null) return;
-        float baseYaw = currentHoldPoint.eulerAngles.y;
+        float yaw = maintainWorldYawWhileHeld ? heldWorldYaw : (currentHoldPoint.eulerAngles.y + holdYawOffset);
         Quaternion tilt = standUprightWhenHeld ? Quaternion.identity : uprightTiltOffset;
-        transform.rotation = Quaternion.Euler(0f, baseYaw + holdYawOffset, 0f) * tilt;
+        transform.rotation = Quaternion.Euler(0f, yaw, 0f) * tilt;
     }
 
     public void Drop(Vector3 throwForce)
@@ -169,11 +193,24 @@ public class PickableObject : MonoBehaviour
         currentHoldPoint = null;
         transform.SetParent(null);
 
+        if (Physics.Raycast(transform.position + Vector3.up * 0.2f, Vector3.down, out RaycastHit hit, 3.0f, ~0, QueryTriggerInteraction.Ignore))
+        {
+            if (hit.collider != null && hit.collider.GetComponentInParent<SombraController>() == null && hit.point.y > 0.5f)
+            {
+                safeRespawnPosition = hit.point + Vector3.up * 0.2f;
+                safeRespawnRotation = transform.rotation;
+            }
+        }
+
         if (rb != null)
         {
             if (lockTiltWhenDropped)
             {
                 rb.constraints |= RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
+                if (GetComponent<PrismaController>() != null)
+                {
+                    rb.constraints |= RigidbodyConstraints.FreezeRotationY;
+                }
             }
 
             rb.isKinematic = false;

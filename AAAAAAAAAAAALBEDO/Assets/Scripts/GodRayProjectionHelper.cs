@@ -94,11 +94,13 @@ public static class GodRayProjectionHelper
         if (hits == null || hits.Length == 0) return false;
         System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
+        bool isPrismBeam = beamTransform.GetComponentInParent<PrismaController>() != null;
         foreach (var h in hits)
         {
             if (h.collider == null || h.collider.isTrigger || h.collider.transform.IsChildOf(beamTransform)) continue;
             if (beamTransform.parent != null && (h.collider.transform.IsChildOf(beamTransform.root) || h.collider.transform == beamTransform.parent)) continue;
             if (h.collider.GetComponentInParent<PlayerController>() != null || h.collider.GetComponentInParent<PrismaController>() != null) continue;
+            if (isPrismBeam && (h.collider.GetComponentInParent<SombraController>() != null || h.collider.gameObject.name.StartsWith("Sombra"))) continue;
             validHit = h;
             return true;
         }

@@ -99,10 +99,12 @@ public class CreateBlenderMaterials : Editor
         // 8. Sombra 1
         CreateOrUpdateMaterial("Sombra 1", shadowShader, mat =>
         {
-            mat.SetColor("_ShadowColor", new Color(0.002f, 0.002f, 0.002f, 0.85f));
+            mat.SetColor("_ShadowColor", new Color(0.055f, 0.06f, 0.075f, 0.94f));
+            mat.SetColor("_NeutralBodyColor", new Color(0.025f, 0.028f, 0.038f, 1.0f));
+            mat.SetColor("_NeutralVeinColor", new Color(0.15f, 0.165f, 0.21f, 1.0f));
             mat.SetVector("_NoiseOffset", new Vector4(0f, 0f, 0.2f, 0f));
-            mat.SetFloat("_VoronoiScale", 0.85f);
-            mat.SetFloat("_Cutoff", 0.518f);
+            mat.SetFloat("_VoronoiScale", 1.25f);
+            mat.SetFloat("_Cutoff", 0.72f);
         });
 
         // 9. Vidro 2 (Prism Glass body)

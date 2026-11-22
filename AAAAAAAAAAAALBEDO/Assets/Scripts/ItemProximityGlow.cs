@@ -8,15 +8,21 @@ using UnityEngine.Rendering;
 [DisallowMultipleComponent]
 public class ItemProximityGlow : MonoBehaviour
 {
-    [SerializeField] private float detectRadius = 11.5f;
-    [SerializeField] private float fullGlowRadius = 6.5f;
-    [SerializeField] private float outlineWidth = 0.055f;
+    [SerializeField] private float detectRadius = 22.0f;
+    [SerializeField] private float fullGlowRadius = 10.0f;
+    [SerializeField] private float outlineWidth = 0.065f;
+    [SerializeField, Range(0f, 1f)] private float fillOpacity = 0.58f;
     [SerializeField] private float fadeSpeed = 4.0f;
     [SerializeField] private Color overrideGlowColor = Color.clear;
+
+    [Header("Cores da Tocha (Destaque)")]
+    [SerializeField] private Color unlitTorchGlowColor = new Color(1.0f, 0.48f, 0.04f, 1f);
+    [SerializeField] private Color litTorchGlowColor = new Color(0.74f, 0.18f, 1.0f, 1f);
 
     private static Material sharedFillMaterial;
     private static Material sharedOutlineMaterial;
     private static readonly int GlowColorId = Shader.PropertyToID("_GlowColor");
+    private static readonly int GlowModeId = Shader.PropertyToID("_GlowMode");
     private static readonly int ProximityAlphaId = Shader.PropertyToID("_ProximityAlpha");
     private static readonly int OutlineWidthId = Shader.PropertyToID("_OutlineWidth");
     private static readonly int FillOpacityId = Shader.PropertyToID("_FillOpacity");
@@ -29,31 +35,67 @@ public class ItemProximityGlow : MonoBehaviour
     private MeshRenderer fillRenderer;
     private MeshRenderer outlineRenderer;
     private Vector3 meshCenterOS = Vector3.zero;
+    private float meshWorldRadius = 0.35f;
     private PickableObject pickable;
     private PlayerController cachedPlayer;
     private MaterialPropertyBlock propBlock;
     private Color resolvedColor = Color.white;
+    private float resolvedGlowMode = 0f;
     private float currentAlpha = 0f;
+
+    public float DetectRadius { get => detectRadius; set => detectRadius = Mathf.Max(0.5f, value); }
+    public float FullGlowRadius { get => fullGlowRadius; set => fullGlowRadius = Mathf.Max(0.1f, value); }
+    public float FillOpacity { get => fillOpacity; set => fillOpacity = Mathf.Clamp01(value); }
+    public Color ResolvedColor => resolvedColor;
+    public float ResolvedGlowMode => resolvedGlowMode;
 
     private void Awake()
     {
         pickable = GetComponent<PickableObject>();
         EnsureOverlayReady();
-        resolvedColor = ResolveItemColor();
+        resolvedColor = ResolveItemColor(out resolvedGlowMode);
         ApplyVisualState(0f);
     }
 
-    private Color ResolveItemColor()
+    /// <summary>
+    /// Resolve a cor e o modo de destaque (sólido ou arco-íris estilo DVD para prismas brancos).
+    /// </summary>
+    public Color ResolveItemColor(out float glowMode)
     {
+        glowMode = 0f;
         if (overrideGlowColor.a > 0.05f) return BoostGlowColor(overrideGlowColor);
 
-        PrismaController prisma = GetComponent<PrismaController>();
-        if (prisma != null) return BoostGlowColor(prisma.EffectivePrismColor);
-
-        if (GetComponent<TorchController>() != null ||
-            gameObject.name.IndexOf("Tocha", System.StringComparison.OrdinalIgnoreCase) >= 0)
+        PrismaController prisma = GetComponent<PrismaController>()
+            ?? GetComponentInParent<PrismaController>()
+            ?? GetComponentInChildren<PrismaController>();
+        if (prisma != null)
         {
-            return new Color(0.82f, 0.86f, 0.92f, 1f);
+            Color c = prisma.EffectivePrismColor;
+            bool isWhite = prisma.ColorPreset == AlbedoColorPreset.White || AlbedoColorUtility.IsNeutralLight(c);
+            if (isWhite)
+            {
+                glowMode = 1f;
+                return Color.white;
+            }
+
+            Color boosted = BoostGlowColor(c);
+            if (boosted.b > 0.85f && boosted.r < 0.2f && boosted.g < 0.2f)
+                return new Color(0.10f, 0.42f, 1.0f, 1f);
+            if (boosted.r > 0.85f && boosted.g < 0.2f && boosted.b < 0.2f)
+                return new Color(1.0f, 0.10f, 0.10f, 1f);
+            if (boosted.g > 0.85f && boosted.r < 0.2f && boosted.b < 0.2f)
+                return new Color(0.08f, 1.0f, 0.20f, 1f);
+            return boosted;
+        }
+
+        TorchController torch = GetComponent<TorchController>()
+            ?? GetComponentInParent<TorchController>()
+            ?? GetComponentInChildren<TorchController>();
+        if (torch != null
+            || gameObject.name.IndexOf("Tocha", System.StringComparison.OrdinalIgnoreCase) >= 0
+            || string.Equals(gameObject.name, "Cylinder.003", System.StringComparison.OrdinalIgnoreCase))
+        {
+            return (torch != null && torch.IsLit) ? litTorchGlowColor : unlitTorchGlowColor;
         }
 
         Renderer r = GetComponent<Renderer>() ?? GetComponentInChildren<Renderer>();
@@ -95,7 +137,7 @@ public class ItemProximityGlow : MonoBehaviour
         {
             sharedFillMaterial = new Material(shader) { name = "ItemOccludedGlow_Fill", renderQueue = 3200 };
             sharedFillMaterial.SetFloat(OutlineWidthId, 0f);
-            sharedFillMaterial.SetFloat(FillOpacityId, 0.34f);
+            sharedFillMaterial.SetFloat(FillOpacityId, 0.58f);
             sharedFillMaterial.SetFloat(RimStrengthId, 0.75f);
             sharedFillMaterial.SetFloat(StencilRefId, 44f);
             sharedFillMaterial.SetFloat(StencilCompId, (float)CompareFunction.Always);
@@ -105,7 +147,7 @@ public class ItemProximityGlow : MonoBehaviour
         if (sharedOutlineMaterial == null)
         {
             sharedOutlineMaterial = new Material(shader) { name = "ItemOccludedGlow_Outline", renderQueue = 3205 };
-            sharedOutlineMaterial.SetFloat(OutlineWidthId, 0.055f);
+            sharedOutlineMaterial.SetFloat(OutlineWidthId, 0.065f);
             sharedOutlineMaterial.SetFloat(FillOpacityId, 1f);
             sharedOutlineMaterial.SetFloat(RimStrengthId, 0f);
             sharedOutlineMaterial.SetFloat(StencilRefId, 44f);
@@ -124,6 +166,11 @@ public class ItemProximityGlow : MonoBehaviour
             if (mf != null && mf.sharedMesh != null)
             {
                 meshCenterOS = mf.sharedMesh.bounds.center;
+                Renderer mrSrc = mf.GetComponent<Renderer>();
+                if (mrSrc != null)
+                {
+                    meshWorldRadius = Mathf.Max(0.08f, mrSrc.bounds.extents.magnitude * 0.62f);
+                }
                 EnsureSharedMaterials();
                 if (sharedFillMaterial != null && sharedOutlineMaterial != null)
                 {
@@ -171,17 +218,19 @@ public class ItemProximityGlow : MonoBehaviour
         }
 
         currentAlpha = Mathf.MoveTowards(currentAlpha, targetAlpha, Time.deltaTime * fadeSpeed);
-        resolvedColor = ResolveItemColor();
         ApplyVisualState(currentAlpha);
     }
 
     public void ApplyVisualState(float alpha)
     {
         EnsureOverlayReady();
-        resolvedColor = ResolveItemColor();
+        resolvedColor = ResolveItemColor(out resolvedGlowMode);
         bool active = alpha > 0.005f;
+        float targetOutlineWidth = resolvedGlowMode > 0.5f
+            ? Mathf.Clamp(outlineWidth * 2.0f, 0.08f, 0.22f)
+            : Mathf.Clamp(outlineWidth, 0.045f, 0.12f);
         ApplyRendererState(fillRenderer, active, 0f, alpha);
-        ApplyRendererState(outlineRenderer, active, Mathf.Clamp(outlineWidth, 0.045f, 0.12f), alpha);
+        ApplyRendererState(outlineRenderer, active, targetOutlineWidth, alpha);
     }
 
     private void ApplyRendererState(MeshRenderer mr, bool active, float width, float alpha)
@@ -189,11 +238,18 @@ public class ItemProximityGlow : MonoBehaviour
         if (mr == null) return;
         mr.enabled = active;
         if (!active) return;
+        Renderer srcR = GetComponent<Renderer>() ?? GetComponentInChildren<Renderer>();
+        if (srcR != null)
+        {
+            meshWorldRadius = Mathf.Max(0.08f, srcR.bounds.extents.magnitude * 0.62f);
+        }
         propBlock.Clear();
         propBlock.SetColor(GlowColorId, resolvedColor);
+        propBlock.SetFloat(GlowModeId, resolvedGlowMode);
         propBlock.SetFloat(ProximityAlphaId, alpha);
         propBlock.SetFloat(OutlineWidthId, width);
-        propBlock.SetVector(MeshCenterId, meshCenterOS);
+        propBlock.SetFloat(FillOpacityId, width > 0.0001f ? 1f : fillOpacity);
+        propBlock.SetVector(MeshCenterId, new Vector4(meshCenterOS.x, meshCenterOS.y, meshCenterOS.z, meshWorldRadius));
         mr.SetPropertyBlock(propBlock);
     }
 }

@@ -36,8 +36,8 @@ Material:
     - _WaveAmplitude: 0.045
     - _WaveSpeed: 1.8
     m_Colors:
-    - _NeutralBodyColor: {r: 0.055, g: 0.06, b: 0.075, a: 1}
-    - _NeutralVeinColor: {r: 0.36, g: 0.38, b: 0.45, a: 1}
+    - _NeutralBodyColor: {r: 0.025, g: 0.028, b: 0.038, a: 1}
+    - _NeutralVeinColor: {r: 0.15, g: 0.165, b: 0.21, a: 1}
     - _NoiseOffset: {r: 0, g: 0, b: 0.2, a: 0}
     - _ShadowColor: {r: 0.055, g: 0.06, b: 0.075, a: 0.94}
   m_BuildTextureStacks: []

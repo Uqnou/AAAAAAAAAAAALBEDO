@@ -166,7 +166,7 @@ public static class AlbedoWallLightGlobals
 
     public static bool EvaluateCarveAtPoint(
         Vector3 worldPos, float marginRadius, Color requiredColor, bool enforceExactColor, float colorTolerance,
-        float holeScale = 1f, float holeOffset = 0f)
+        float holeScale = 1f, float holeOffset = 0f, bool ignorePrismBeams = false)
     {
         if (Application.isPlaying && lastPushFrame != Time.frameCount) PushToShaderGlobals();
         if (activeBeamCount <= 0) return false;
@@ -175,6 +175,7 @@ public static class AlbedoWallLightGlobals
         Vector3 accumColor = Vector3.zero;
         for (int i = 0; i < activeBeamCount; i++)
         {
+            if (ignorePrismBeams && BeamParams[i].y > 0.5f) continue;
             float strength = BeamParams[i].z;
             if (strength <= 0.05f) continue;
             Vector3 origin = new Vector3(BeamStarts[i].x, BeamStarts[i].y, BeamStarts[i].z);

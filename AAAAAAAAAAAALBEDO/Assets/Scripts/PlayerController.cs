@@ -17,10 +17,12 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float interactionRadius = 2.5f;
     [SerializeField] private Transform holdPoint;
     [SerializeField] private float dropForwardForce = 0f;
-    [SerializeField] private float heldObjectRotateSpeed = 110f;
+    [SerializeField] private float heldObjectRotateSpeed = 75f;
+    [SerializeField] private float rotationStep = 7.5f;
 
     private CharacterController characterController;
     private float verticalVelocity = 0f;
+    private Vector3 lastSafeGroundedPosition;
     private PickableObject heldObject = null;
     private PickableObject nearestObject = null;
     private BlackFireBrazier nearestBrazier = null;
@@ -30,6 +32,7 @@ public class PlayerController : MonoBehaviour
     private void Awake()
     {
         characterController = GetComponent<CharacterController>();
+        lastSafeGroundedPosition = transform.position;
 
         if (holdPoint == null)
         {
@@ -154,6 +157,61 @@ public class PlayerController : MonoBehaviour
         Vector3 finalVelocity = moveDir * moveSpeed;
         finalVelocity.y = verticalVelocity;
         characterController.Move(finalVelocity * Time.deltaTime);
+
+        if (characterController.isGrounded && transform.position.y > 1.2f)
+        {
+            if (Physics.Raycast(transform.position, Vector3.down, out RaycastHit groundHit, 2.0f, ~0, QueryTriggerInteraction.Ignore))
+            {
+                if (groundHit.collider != null && groundHit.collider.GetComponentInParent<SombraController>() == null)
+                {
+                    lastSafeGroundedPosition = transform.position;
+                }
+            }
+        }
+
+        if (transform.position.y < -3.5f)
+        {
+            characterController.enabled = false;
+            transform.position = lastSafeGroundedPosition + Vector3.up * 0.4f;
+            verticalVelocity = 0f;
+            characterController.enabled = true;
+        }
+    }
+
+    /// <summary>
+    /// Garante linha de visão física entre o jogador e o alvo para evitar coleta/interação através de paredes ou sombras fechadas.
+    /// </summary>
+    public bool HasInteractionLineOfSight(Collider targetCollider)
+    {
+        if (targetCollider == null) return false;
+        Vector3 origin = transform.position + Vector3.up * 0.55f;
+        Vector3 target = targetCollider.bounds.center + Vector3.up * 0.1f;
+        Vector3 delta = target - origin;
+        float dist = delta.magnitude;
+        if (dist <= 0.05f) return true;
+
+        RaycastHit[] hits = Physics.RaycastAll(origin, delta / dist, dist, ~0, QueryTriggerInteraction.Collide);
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+        for (int i = 0; i < hits.Length; i++)
+        {
+            Collider c = hits[i].collider;
+            if (c == null || c.isTrigger) continue;
+            if (c.transform.IsChildOf(transform)) continue;
+            if (c.transform.IsChildOf(targetCollider.transform) || targetCollider.transform.IsChildOf(c.transform)) continue;
+
+            SombraController sombra = c.GetComponentInParent<SombraController>();
+            if (sombra != null)
+            {
+                if (sombra.Mode == ShadowMode.WalkableBridge) continue;
+                if (!sombra.IsPassableAtPoint(hits[i].point, 0.45f)) return false;
+                continue;
+            }
+
+            if (c.gameObject.name == "Pira" || c.bounds.max.y <= targetCollider.bounds.min.y + 0.35f) continue;
+            return false;
+        }
+        return true;
     }
 
     private void CheckInteractionProximity()
@@ -168,6 +226,8 @@ public class PlayerController : MonoBehaviour
             BlackFireBrazier brazier = col.GetComponent<BlackFireBrazier>() ?? col.GetComponentInParent<BlackFireBrazier>();
             if (brazier != null)
             {
+                Collider brazierCol = brazier.GetComponent<Collider>() ?? col;
+                if (!HasInteractionLineOfSight(brazierCol)) continue;
                 float d = Vector3.Distance(transform.position, brazier.transform.position);
                 if (d < minBrazierDist) { minBrazierDist = d; closestBrazier = brazier; }
             }
@@ -188,6 +248,8 @@ public class PlayerController : MonoBehaviour
             PickableObject pickable = col.GetComponent<PickableObject>() ?? col.GetComponentInParent<PickableObject>();
             if (pickable != null && !pickable.IsPickedUp)
             {
+                Collider pickableCol = pickable.GetComponent<Collider>() ?? col;
+                if (!HasInteractionLineOfSight(pickableCol)) continue;
                 float dist = Vector3.Distance(transform.position, pickable.transform.position);
                 if (dist < minDistance) { minDistance = dist; closest = pickable; }
             }
@@ -205,15 +267,27 @@ public class PlayerController : MonoBehaviour
     {
         if (heldObject == null) return;
         Keyboard keyboard = Keyboard.current;
-        if (keyboard == null) return;
-
-        float rotateInput = 0f;
-        if (keyboard.qKey.isPressed) rotateInput -= 1f;
-        if (keyboard.rKey.isPressed) rotateInput += 1f;
-
-        if (Mathf.Abs(rotateInput) > 0.01f)
+        if (keyboard != null)
         {
-            heldObject.RotateY(rotateInput * heldObjectRotateSpeed * Time.deltaTime);
+            float rotateInput = 0f;
+            if (keyboard.qKey.isPressed) rotateInput -= 1f;
+            if (keyboard.rKey.isPressed) rotateInput += 1f;
+
+            if (Mathf.Abs(rotateInput) > 0.01f)
+            {
+                float fineMult = (keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed) ? 0.35f : 1f;
+                heldObject.RotateY(rotateInput * heldObjectRotateSpeed * fineMult * Time.deltaTime);
+            }
+        }
+
+        Mouse mouse = Mouse.current;
+        if (mouse != null)
+        {
+            float scrollY = mouse.scroll.ReadValue().y;
+            if (Mathf.Abs(scrollY) > 0.01f)
+            {
+                heldObject.RotateY(Mathf.Sign(scrollY) * rotationStep);
+            }
         }
     }
 
@@ -236,9 +310,7 @@ public class PlayerController : MonoBehaviour
                     }
                 }
 
-                Vector3 throwForce = dropForwardForce > 0.001f ? transform.forward * dropForwardForce : Vector3.zero;
-                heldObject.Drop(throwForce);
-                heldObject = null;
+                DropHeldObject();
             }
             else if (nearestObject != null)
             {
@@ -247,6 +319,39 @@ public class PlayerController : MonoBehaviour
                 heldObject.PickUp(holdPoint);
             }
         }
+    }
+
+    private void DropHeldObject()
+    {
+        if (heldObject == null) return;
+
+        Vector3 origin = transform.position + Vector3.up * 0.4f;
+        Vector3 dest = holdPoint != null ? holdPoint.position : heldObject.transform.position;
+        Vector3 delta = dest - origin;
+        float dist = delta.magnitude;
+        if (dist > 0.05f)
+        {
+            Vector3 dir = delta / dist;
+            RaycastHit[] hits = Physics.RaycastAll(origin, dir, dist + 0.15f, ~0, QueryTriggerInteraction.Ignore);
+            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            for (int i = 0; i < hits.Length; i++)
+            {
+                Collider c = hits[i].collider;
+                if (c == null || c.transform.IsChildOf(transform) || c.transform.IsChildOf(heldObject.transform)) continue;
+                SombraController sombra = c.GetComponentInParent<SombraController>();
+                if (sombra != null && sombra.Mode == ShadowMode.WalkableBridge) continue;
+                if (sombra != null && sombra.Mode == ShadowMode.Barrier && sombra.IsPassableAtPoint(hits[i].point, 0.45f)) continue;
+
+                float safeDist = Mathf.Max(0.15f, hits[i].distance - 0.35f);
+                heldObject.transform.SetParent(null);
+                heldObject.transform.position = origin + dir * safeDist;
+                break;
+            }
+        }
+
+        Vector3 throwForce = dropForwardForce > 0.001f ? transform.forward * dropForwardForce : Vector3.zero;
+        heldObject.Drop(throwForce);
+        heldObject = null;
     }
 
     private void OnDrawGizmosSelected()
