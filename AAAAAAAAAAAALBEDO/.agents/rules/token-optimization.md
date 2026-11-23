@@ -1,6 +1,7 @@
 ---
+trigger: always_on
 description: Diretrizes obrigatórias de economia de tokens e limite de tamanho de arquivos
-globs: ["**/*"]
+globs: "**/*"
 alwaysApply: true
 ---
 

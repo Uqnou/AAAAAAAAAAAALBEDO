@@ -9,7 +9,7 @@ float4 _AlbedoTorchParams[ALBEDO_MAX_TORCHES];    // x = edgeSoftness (0.05..0.9
 float4 _AlbedoTorchFacing[ALBEDO_MAX_TORCHES];    // xyz = playerForward (plano XZ), w = isHeld (1.0 se segurada, 0.0 se solta)
 float4 _AlbedoTorchPlayerPos[ALBEDO_MAX_TORCHES]; // xyz = playerBodyCenterWS, w = bodyRadius
 
-float EvaluatePlayerBodyTorchOcclusion(float3 positionWS, int torchIdx)
+float EvaluatePlayerBodyTorchOcclusion(float3 positionWS, int torchIdx, bool isHorizontalPrismBeam)
 {
     float isHeld = _AlbedoTorchFacing[torchIdx].w;
     if (isHeld < 0.5) return 1.0; // Tocha no chão emite em 360 graus livremente
@@ -17,6 +17,12 @@ float EvaluatePlayerBodyTorchOcclusion(float3 positionWS, int torchIdx)
     float3 playerFwd = _AlbedoTorchFacing[torchIdx].xyz;
     float3 playerPos = _AlbedoTorchPlayerPos[torchIdx].xyz;
     float bodyRadius = max(_AlbedoTorchPlayerPos[torchIdx].w, 0.45);
+
+    if (isHorizontalPrismBeam)
+    {
+        float forwardDist = dot(positionWS.xz - playerPos.xz, playerFwd.xz);
+        return smoothstep(0.45, 0.95, forwardDist);
+    }
 
     // Vetores no plano horizontal XZ relativos ao jogador
     float2 toPtFromPlayer = positionWS.xz - playerPos.xz;
@@ -36,14 +42,14 @@ float EvaluatePlayerBodyTorchOcclusion(float3 positionWS, int torchIdx)
     return saturate(1.0 - backBlock);
 }
 
-float EvaluateTorchHoleMask(float3 positionWS, float3 center, float radius, float softness, float strength, float dist, int torchIdx)
+float EvaluateTorchHoleMask(float3 positionWS, float3 center, float radius, float softness, float strength, float dist, int torchIdx, bool isHorizontalPrismBeam)
 {
     float3 dir = dist > 0.0001 ? normalize(positionWS - center) : float3(0.0, 1.0, 0.0);
     float rippleScale = saturate(dist / max(radius * 0.2, 0.001));
     float ripple = sin(dir.x * 5.0 + _Time.y * 2.2) * cos(dir.z * 5.0 - _Time.y * 1.8) * 0.05 * radius * rippleScale;
     float innerR = radius * (1.0 - softness);
     float holeMask = 1.0 - smoothstep(innerR, radius, dist + ripple);
-    float bodyOcc = EvaluatePlayerBodyTorchOcclusion(positionWS, torchIdx);
+    float bodyOcc = EvaluatePlayerBodyTorchOcclusion(positionWS, torchIdx, isHorizontalPrismBeam);
     return holeMask * strength * bodyOcc;
 }
 
@@ -75,7 +81,7 @@ float EvaluateTorchShadowCarve(float3 positionWS, bool volumetricViewCompensatio
             dist = distance(positionWS, center);
         }
 
-        maxCarve = max(maxCarve, EvaluateTorchHoleMask(positionWS, center, radius, softness, strength, dist, i));
+        maxCarve = max(maxCarve, EvaluateTorchHoleMask(positionWS, center, radius, softness, strength, dist, i, false));
     }
 
     return saturate(maxCarve);
@@ -136,7 +142,7 @@ float EvaluateTorchBeamCarve(
             dist = length(delta);
         }
 
-        maxCarve = max(maxCarve, EvaluateTorchHoleMask(positionWS, center, radius, softness, strength, dist, i));
+        maxCarve = max(maxCarve, EvaluateTorchHoleMask(positionWS, center, radius, softness, strength, dist, i, isHorizontalPrismBeam));
     }
 
     return saturate(maxCarve);

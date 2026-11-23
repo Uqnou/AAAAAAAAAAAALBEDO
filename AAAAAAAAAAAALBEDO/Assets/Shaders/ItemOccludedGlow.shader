@@ -207,6 +207,19 @@ Shader "Custom/URP_ItemOccludedGlow"
                 return output;
             }
 
+            float ComputeSceneEyeDepth(float rawDepth)
+            {
+                if (unity_OrthoParams.w > 0.5)
+                {
+                    #if UNITY_REVERSED_Z
+                        return lerp(_ProjectionParams.z, _ProjectionParams.y, rawDepth);
+                    #else
+                        return lerp(_ProjectionParams.y, _ProjectionParams.z, rawDepth);
+                    #endif
+                }
+                return LinearEyeDepth(rawDepth, _ZBufferParams);
+            }
+
             half4 frag(Varyings input) : SV_Target
             {
                 clip(_ProximityAlpha - 0.005);
@@ -216,8 +229,7 @@ Shader "Custom/URP_ItemOccludedGlow"
                 if (IsSkyDepth(rawSceneDepth))
                     discard;
 
-                float3 scenePosWS = ComputeWorldSpacePosition(screenUV, rawSceneDepth, UNITY_MATRIX_I_VP);
-                float sceneEyeDepth = -TransformWorldToView(scenePosWS).z;
+                float sceneEyeDepth = ComputeSceneEyeDepth(rawSceneDepth);
 
                 // Discard pixels that are NOT strictly behind an opaque occluder
                 clip(input.eyeDepth - sceneEyeDepth - _DepthBias);

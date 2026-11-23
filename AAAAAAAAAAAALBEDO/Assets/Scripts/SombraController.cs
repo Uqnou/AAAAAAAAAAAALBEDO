@@ -14,22 +14,18 @@ public class SombraController : MonoBehaviour
     [SerializeField] private ShadowMode mode = ShadowMode.Barrier;
     [SerializeField] private AlbedoColorPreset requiredColorPreset = AlbedoColorPreset.White;
     [SerializeField] private Color requiredColor = Color.white;
-    [Tooltip("Se ativo, exige a cor configurada da sombra (ou Luz Branca, que é a junção de todas as cores).")]
-    [SerializeField] private bool requireExactColor = false;
+    [SerializeField, Tooltip("Se ativo, exige a cor configurada da sombra (ou Luz Branca, que é a junção de todas as cores).")] private bool requireExactColor = false;
     [SerializeField] private float colorTolerance = AlbedoColorUtility.DefaultColorTolerance;
 
     [Header("Passarela (WalkableBridge)")]
     [SerializeField] private List<LightSource> linkedLights = new List<LightSource>();
     [SerializeField] private float lightOverlapHeight = 12f;
-    [Tooltip("Se desativado (padrão), a luz emitida por Prismas não abre buracos nem quebra esta sombra do chão (WalkableBridge).")]
-    [SerializeField] private bool allowPrismToOpenBridge = false;
+    [SerializeField, Tooltip("Se desativado (padrão), a luz emitida por Prismas não abre buracos nem quebra esta sombra do chão (WalkableBridge).")] private bool allowPrismToOpenBridge = false;
 
     [Header("Indicador Visual de Cor")]
     [SerializeField] private bool syncVisualColorIndicator = true;
-    [Tooltip("Cor visual da sombra quando ela exige especificamente a luz Branca (requireExactColor = true).")]
-    [SerializeField] private Color whiteOnlyVisualColor = new Color(1f, 1f, 1f, 1f);
-    [Tooltip("Cor opcional para sombras que abrem com qualquer cor (alpha = 0 usa a cor escura neutra padrão do shader).")]
-    [SerializeField] private Color anyColorVisualTint = new Color(0f, 0f, 0f, 0f);
+    [SerializeField, Tooltip("Cor visual da sombra quando ela exige especificamente a luz Branca (requireExactColor = true).")] private Color whiteOnlyVisualColor = new Color(1f, 1f, 1f, 1f);
+    [SerializeField, Tooltip("Cor opcional para sombras que abrem com qualquer cor (alpha = 0 usa a cor escura neutra padrão do shader).")] private Color anyColorVisualTint = new Color(0f, 0f, 0f, 0f);
 
     [Header("Tamanho do Buraco da Luz")]
     [Range(0.1f, 4.0f)] [SerializeField] private float holeSizeMultiplier = 1.0f;
@@ -53,6 +49,8 @@ public class SombraController : MonoBehaviour
     private Collider[] colliders;
     private float nextActorRefreshTime = -1f;
     private bool isHidden = false;
+    private bool playerBackwardsPassLatched = false;
+    private Vector2 latchedWallApproachDir = Vector2.zero;
 
     public ShadowMode Mode { get => mode; set => mode = value; }
     public AlbedoColorPreset RequiredColorPreset { get => requiredColorPreset; set { requiredColorPreset = value; SyncPresetColor(); } }
@@ -75,9 +73,8 @@ public class SombraController : MonoBehaviour
         GetEffectiveCarveOffsets(out float effScale, out float effOffset);
         if (AlbedoWallLightGlobals.EvaluateCarveAtPoint(worldPoint, marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling)) return true;
         Bounds b = ComputeWorldBounds();
-        Vector3 lowProbe = new Vector3(worldPoint.x, Mathf.Lerp(b.min.y, b.max.y, 0.35f), worldPoint.z);
-        if (AlbedoWallLightGlobals.EvaluateCarveAtPoint(lowProbe, marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling)) return true;
-        return AlbedoWallLightGlobals.EvaluateCarveAtPoint(new Vector3(worldPoint.x, 1.95f, worldPoint.z), marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling);
+        return AlbedoWallLightGlobals.EvaluateCarveAtPoint(new Vector3(worldPoint.x, Mathf.Lerp(b.min.y, b.max.y, 0.35f), worldPoint.z), marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling)
+            || AlbedoWallLightGlobals.EvaluateCarveAtPoint(new Vector3(worldPoint.x, 1.95f, worldPoint.z), marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling);
     }
 
     private void GetEffectiveCarveOffsets(out float effScale, out float effOffset)
@@ -135,8 +132,7 @@ public class SombraController : MonoBehaviour
 
     private void CacheComponents()
     {
-        renderers = GetComponentsInChildren<Renderer>(true);
-        colliders = GetComponentsInChildren<Collider>(true);
+        renderers = GetComponentsInChildren<Renderer>(true); colliders = GetComponentsInChildren<Collider>(true);
         originalTriggerStates.Clear(); originalEnabledStates.Clear();
         foreach (var col in colliders)
         {
@@ -146,12 +142,7 @@ public class SombraController : MonoBehaviour
         }
     }
 
-    private void Update()
-    {
-        if (!Application.isPlaying) return;
-        if (mode == ShadowMode.WalkableBridge) ReevaluateState(false);
-        UpdatePartialCollisions();
-    }
+    private void Update() { if (!Application.isPlaying) return; if (mode == ShadowMode.WalkableBridge) ReevaluateState(false); UpdatePartialCollisions(); }
 
     private void RefreshDynamicActors()
     {
@@ -160,6 +151,42 @@ public class SombraController : MonoBehaviour
         if (player != null) foreach (var c in player.GetComponentsInChildren<Collider>(true)) if (c != null) dynamicActors.Add(c);
         foreach (PickableObject item in Object.FindObjectsByType<PickableObject>(FindObjectsSortMode.None))
             if (item != null) foreach (var c in item.GetComponentsInChildren<Collider>(true)) if (c != null) dynamicActors.Add(c);
+    }
+
+    private static bool IsPlayerHoldingLitTorch(PlayerController player)
+    {
+        if (player == null) return false;
+        TorchController t1 = player.HeldObject != null ? player.HeldObject.GetComponentInChildren<TorchController>() : null;
+        TorchController t2 = player.OffHandObject != null ? player.OffHandObject.GetComponentInChildren<TorchController>() : null;
+        return (t1 != null && t1.IsLit) || (t2 != null && t2.IsLit);
+    }
+
+    private bool EvaluatePlayerBarrierPass(PlayerController player, Collider shadowCol, Color reqColor, bool enforceExact, float effScale, float effOffset, bool ignorePrism, bool ignoreCeiling)
+    {
+        Bounds sb = shadowCol.bounds;
+        Vector3 pCenter = player.transform.position + Vector3.up * 0.9f, pLow = player.transform.position + Vector3.up * 0.35f;
+        Vector3 cPt = shadowCol.ClosestPoint(pCenter), lPt = shadowCol.ClosestPoint(pLow);
+        bool beamOpen = AlbedoWallLightGlobals.EvaluateCarveAtPoint(cPt, 0.45f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling, true)
+                     || AlbedoWallLightGlobals.EvaluateCarveAtPoint(lPt, 0.45f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling, true)
+                     || AlbedoWallLightGlobals.EvaluateCarveAtPoint(pCenter, 0.45f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling, true);
+        if (!beamOpen) { playerBackwardsPassLatched = false; return false; }
+        if (!IsPlayerHoldingLitTorch(player)) { playerBackwardsPassLatched = false; return true; }
+
+        bool xNormal = sb.size.x < sb.size.z;
+        float signedDelta = xNormal ? (sb.center.x - pCenter.x) : (sb.center.z - pCenter.z);
+        float planeDist = Mathf.Abs(signedDelta), passLimit = (xNormal ? sb.extents.x : sb.extents.z) + 0.65f;
+        Vector2 dirToWall = xNormal ? new Vector2(signedDelta >= 0f ? 1f : -1f, 0f) : new Vector2(0f, signedDelta >= 0f ? 1f : -1f);
+        Vector2 playerFwd = new Vector2(player.transform.forward.x, player.transform.forward.z);
+        playerFwd = playerFwd.sqrMagnitude > 0.0001f ? playerFwd.normalized : Vector2.up;
+        if (planeDist > passLimit) playerBackwardsPassLatched = false;
+        if (playerBackwardsPassLatched)
+        {
+            if (Vector2.Dot(playerFwd, latchedWallApproachDir) <= -0.20f) return true;
+            playerBackwardsPassLatched = false; return false;
+        }
+        if (Vector2.Dot(playerFwd, dirToWall) > -0.35f) return false;
+        if (planeDist <= passLimit) { playerBackwardsPassLatched = true; latchedWallApproachDir = dirToWall; }
+        return true;
     }
 
     private void UpdatePartialCollisions()
@@ -192,11 +219,11 @@ public class SombraController : MonoBehaviour
                 }
                 else
                 {
-                    Vector3 cPt = shadowCol.ClosestPoint(center), lPt = shadowCol.ClosestPoint(low);
-                    carved = AlbedoWallLightGlobals.EvaluateCarveAtPoint(cPt, 0.45f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling)
-                          || AlbedoWallLightGlobals.EvaluateCarveAtPoint(lPt, 0.45f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling)
-                          || AlbedoWallLightGlobals.EvaluateCarveAtPoint(center, 0.35f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling)
-                          || AlbedoWallLightGlobals.EvaluateCarveAtPoint(low, 0.35f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling);
+                    PlayerController pc = actorCol.GetComponentInParent<PlayerController>();
+                    carved = pc != null
+                        ? EvaluatePlayerBarrierPass(pc, shadowCol, reqColor, enforceExact, effScale, effOffset, ignorePrism, ignoreCeiling)
+                        : AlbedoWallLightGlobals.EvaluateCarveAtPoint(shadowCol.ClosestPoint(center), 0.45f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling)
+                          || AlbedoWallLightGlobals.EvaluateCarveAtPoint(shadowCol.ClosestPoint(low), 0.45f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling);
                 }
                 Physics.IgnoreCollision(actorCol, shadowCol, carved);
             }
@@ -221,8 +248,7 @@ public class SombraController : MonoBehaviour
         Color effective = EffectiveRequiredColor;
         if (!ShouldEnforceExactColor(effective)) return true;
         Color combined = AlbedoColorUtility.CombineAdditive(prismColorBuffer);
-        if (AlbedoColorUtility.IsNeutralLight(combined)) return true;
-        return AlbedoColorUtility.ColorsMatch(combined, effective, true, colorTolerance);
+        return AlbedoColorUtility.IsNeutralLight(combined) || AlbedoColorUtility.ColorsMatch(combined, effective, true, colorTolerance);
     }
 
     private bool IsBridgeExposedToActiveLight()
@@ -262,7 +288,7 @@ public class SombraController : MonoBehaviour
     private void OnDisable()
     {
         if (!Application.isPlaying) return;
-        activeIlluminatingPrisms.Clear();
+        playerBackwardsPassLatched = false; activeIlluminatingPrisms.Clear();
         if (colliders != null) for (int s = 0; s < colliders.Length; s++) for (int a = 0; a < dynamicActors.Count; a++) if (colliders[s] != null && dynamicActors[a] != null) Physics.IgnoreCollision(dynamicActors[a], colliders[s], false);
         ApplyState(false);
     }

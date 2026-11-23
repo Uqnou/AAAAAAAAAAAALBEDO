@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -6,6 +7,8 @@ using UnityEngine;
 [RequireComponent(typeof(Collider))]
 public class CameraTriggerZone : MonoBehaviour
 {
+    private static readonly List<CameraTriggerZone> activeZones = new List<CameraTriggerZone>();
+
     [Header("Identificação do Player")]
     [Tooltip("Tag para identificar o jogador. Deixe vazio para detectar pelo PlayerController.")]
     [SerializeField] private string playerTag = "Player";
@@ -37,19 +40,20 @@ public class CameraTriggerZone : MonoBehaviour
     [SerializeField] private AnimationCurve transitionCurve = AnimationCurve.EaseInOut(0, 0, 1, 1);
 
     [Header("Comportamento ao Sair")]
-    [Tooltip("Se verdadeiro, restaura as configurações que a câmera possuía antes de entrar na zona.")]
+    [Tooltip("Se verdadeiro, restaura as configurações da câmera padrão/Sala1 ao sair da zona.")]
     [SerializeField] private bool revertOnExit = false;
 
     [Tooltip("Tempo de transição ao restaurar na saída.")]
     [SerializeField] private float exitTransitionDuration = 1.2f;
 
-    // Estado prévio salvo para restauração
-    private float prevPitch;
-    private float prevYaw;
-    private float prevSize;
-    private Vector3 prevLook;
-    private float prevDist;
-    private bool hasSavedState = false;
+    private readonly HashSet<Collider> playerCollidersInside = new HashSet<Collider>();
+
+    public float TargetPitchAngle => targetPitchAngle;
+    public float TargetYawAngle => targetYawAngle;
+    public float TargetOrthographicSize => targetOrthographicSize;
+    public Vector3 TargetLookPosition => targetFocusTransform != null ? targetFocusTransform.position : targetLookPosition;
+    public float TargetCameraDistance => targetCameraDistance;
+    public bool IsSala1Zone => string.Equals(gameObject.name, "Sala1", System.StringComparison.OrdinalIgnoreCase);
 
     private void Reset()
     {
@@ -66,48 +70,85 @@ public class CameraTriggerZone : MonoBehaviour
         }
     }
 
+    private void OnDisable()
+    {
+        playerCollidersInside.Clear();
+        activeZones.Remove(this);
+    }
+
     private void OnTriggerEnter(Collider other)
     {
         if (!IsPlayer(other)) return;
 
-        IsometricCamera isoCam = IsometricCamera.Instance != null ? IsometricCamera.Instance : FindFirstObjectByType<IsometricCamera>();
-        if (isoCam == null) return;
+        playerCollidersInside.Add(other);
+        if (playerCollidersInside.Count > 1) return;
 
-        // Salva estado para restauração futura
-        if (revertOnExit && !hasSavedState)
-        {
-            prevPitch = isoCam.PitchAngle;
-            prevYaw = isoCam.YawAngle;
-            prevSize = isoCam.OrthographicSize;
-            prevLook = isoCam.LookTarget;
-            prevDist = isoCam.CameraDistance;
-            hasSavedState = true;
-        }
-
-        Vector3 targetPos = targetFocusTransform != null ? targetFocusTransform.position : targetLookPosition;
-        isoCam.SetCameraSettings(targetPitchAngle, targetYawAngle, targetOrthographicSize, targetPos, targetCameraDistance, transitionDuration, transitionCurve);
+        activeZones.Remove(this);
+        activeZones.Add(this);
+        ApplyZoneCamera(transitionDuration);
     }
 
     private void OnTriggerExit(Collider other)
     {
-        if (!revertOnExit || !hasSavedState) return;
         if (!IsPlayer(other)) return;
 
-        IsometricCamera isoCam = IsometricCamera.Instance != null ? IsometricCamera.Instance : FindFirstObjectByType<IsometricCamera>();
+        playerCollidersInside.Remove(other);
+        playerCollidersInside.RemoveWhere(c => c == null || !c.enabled || !c.gameObject.activeInHierarchy);
+        if (playerCollidersInside.Count > 0) return;
+
+        activeZones.Remove(this);
+        if (IsSala1Zone) return;
+
+        bool isTutorialScene = gameObject.scene.IsValid()
+            && gameObject.scene.name.IndexOf("Tutorial", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        if (!revertOnExit && !isTutorialScene) return;
+
+        IsometricCamera isoCam = GetIsometricCamera();
         if (isoCam == null) return;
 
-        isoCam.SetCameraSettings(prevPitch, prevYaw, prevSize, prevLook, prevDist, exitTransitionDuration, transitionCurve);
-        hasSavedState = false;
+        activeZones.RemoveAll(z => z == null || !z.isActiveAndEnabled || z.gameObject.scene != gameObject.scene);
+        for (int i = activeZones.Count - 1; i >= 0; i--)
+        {
+            CameraTriggerZone fallbackZone = activeZones[i];
+            if (fallbackZone != null && !fallbackZone.IsSala1Zone)
+            {
+                fallbackZone.ApplyZoneCamera(exitTransitionDuration);
+                return;
+            }
+        }
+
+        isoCam.ResetToDefaultCameraSettings(exitTransitionDuration, transitionCurve);
+    }
+
+    public void ApplyZoneCamera(float duration)
+    {
+        IsometricCamera isoCam = GetIsometricCamera();
+        if (isoCam == null) return;
+
+        isoCam.SetCameraSettings(
+            targetPitchAngle,
+            targetYawAngle,
+            targetOrthographicSize,
+            TargetLookPosition,
+            targetCameraDistance,
+            duration,
+            transitionCurve);
+    }
+
+    private static IsometricCamera GetIsometricCamera()
+    {
+        return IsometricCamera.Instance != null ? IsometricCamera.Instance : FindFirstObjectByType<IsometricCamera>();
     }
 
     private bool IsPlayer(Collider other)
     {
-        if (!string.IsNullOrEmpty(playerTag) && other.CompareTag(playerTag))
-        {
-            return true;
-        }
+        if (other == null) return false;
+        if (other.GetComponentInParent<PickableObject>() != null) return false;
+        if (other.GetComponent<PlayerController>() != null) return true;
+        if (!string.IsNullOrEmpty(playerTag) && other.CompareTag(playerTag)) return true;
 
-        return other.GetComponentInParent<PlayerController>() != null;
+        PlayerController pc = other.GetComponentInParent<PlayerController>();
+        return pc != null && other.transform == pc.transform;
     }
 
     private void OnDrawGizmos()

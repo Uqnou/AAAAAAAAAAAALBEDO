@@ -43,6 +43,10 @@ public class IsometricCamera : MonoBehaviour
     private Camera cam;
     private Coroutine transitionCoroutine;
     private float configuredNormalDistance;
+    private float defaultPitchAngle;
+    private float defaultYawAngle;
+    private float defaultOrthographicSize;
+    private Vector3 defaultLookTarget;
 
     // Propriedades de leitura
     public float PitchAngle => pitchAngle;
@@ -66,6 +70,10 @@ public class IsometricCamera : MonoBehaviour
         }
 
         cam = GetComponent<Camera>();
+        defaultPitchAngle = pitchAngle;
+        defaultYawAngle = yawAngle;
+        defaultOrthographicSize = orthographicSize;
+        defaultLookTarget = lookTarget;
         configuredNormalDistance = cameraDistance;
         ApplyHDQualitySettings();
         ApplyIsometricSettings();
@@ -123,6 +131,7 @@ public class IsometricCamera : MonoBehaviour
         {
             // Usa None para nao borrar o padrao de halftone das paredes; a suavizacao vem do MSAA de hardware (igual a Scene View)
             urpCam.antialiasing = AntialiasingMode.None;
+            urpCam.requiresDepthTexture = true;
         }
 
         if (Application.isPlaying)
@@ -130,6 +139,7 @@ public class IsometricCamera : MonoBehaviour
             QualitySettings.antiAliasing = 8;
             if (UniversalRenderPipeline.asset != null)
             {
+                UniversalRenderPipeline.asset.supportsCameraDepthTexture = true;
                 if (UniversalRenderPipeline.asset.renderScale < 1f)
                     UniversalRenderPipeline.asset.renderScale = 1f;
                 if (UniversalRenderPipeline.asset.msaaSampleCount < 8)
@@ -160,6 +170,31 @@ public class IsometricCamera : MonoBehaviour
 
         Vector3 offset = isoRotation * new Vector3(0, 0, -cameraDistance);
         transform.position = lookTarget + offset;
+    }
+
+    /// <summary>
+    /// Restaura a câmera para as configurações da zona Sala1 (ou padrão inicial da câmera).
+    /// </summary>
+    public void ResetToDefaultCameraSettings(float duration = 1.0f, AnimationCurve curve = null)
+    {
+        CameraTriggerZone[] zones = FindObjectsByType<CameraTriggerZone>(FindObjectsSortMode.None);
+        for (int i = 0; i < zones.Length; i++)
+        {
+            if (zones[i] != null && zones[i].IsSala1Zone)
+            {
+                SetCameraSettings(
+                    zones[i].TargetPitchAngle,
+                    zones[i].TargetYawAngle,
+                    zones[i].TargetOrthographicSize,
+                    zones[i].TargetLookPosition,
+                    zones[i].TargetCameraDistance,
+                    duration,
+                    curve);
+                return;
+            }
+        }
+
+        SetCameraSettings(defaultPitchAngle, defaultYawAngle, defaultOrthographicSize, defaultLookTarget, configuredNormalDistance, duration, curve);
     }
 
     /// <summary>

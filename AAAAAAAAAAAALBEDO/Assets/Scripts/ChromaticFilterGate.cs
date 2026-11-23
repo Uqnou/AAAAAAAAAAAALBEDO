@@ -40,12 +40,15 @@ public class ChromaticFilterGate : MonoBehaviour
     [SerializeField] private Transform customExitPointB;
 
     [Header("Comportamento Óptico")]
-    [Tooltip("Se ativo, a direção base parte do feixe incidente; se desativado, usa o eixo frontal do vitral.")]
-    [SerializeField] private bool alignToIncomingBeam = true;
+    [Tooltip("Se ativo, a direção base parte do feixe incidente; se desativado, usa o eixo frontal fixo do vitral.")]
+    [SerializeField] private bool alignToIncomingBeam = false;
     [Tooltip("Distância após o centro do vitral onde o feixe filtrado nasce para não colidir com a própria face.")]
     [SerializeField] private float exitThicknessOffset = 0.45f;
     [SerializeField] private bool syncVisualMaterialTint = true;
     [SerializeField] private int visualMaterialSlot = 0;
+
+    [Header("God Ray (Igual ao Prisma)")]
+    [SerializeField] private GameObject godRayPrefab;
 
     private readonly Dictionary<PrismaController, Vector3> incomingBeamDirs = new Dictionary<PrismaController, Vector3>();
     private readonly List<PrismaController> toRemoveBuffer = new List<PrismaController>();
@@ -60,6 +63,7 @@ public class ChromaticFilterGate : MonoBehaviour
     public float YawOffsetA { get => yawOffsetA; set => yawOffsetA = value; }
     public float YawOffsetB { get => yawOffsetB; set => yawOffsetB = value; }
     public bool AlignToIncomingBeam { get => alignToIncomingBeam; set => alignToIncomingBeam = value; }
+    public GameObject GodRayPrefab { get => godRayPrefab; set => godRayPrefab = value; }
     public PrismaController EmitterA => emitterA;
     public PrismaController EmitterB => emitterB;
     public Color EffectiveFilterColorA => AlbedoColorUtility.PresetToColor(filterPresetA, customFilterColorA);
@@ -68,10 +72,23 @@ public class ChromaticFilterGate : MonoBehaviour
     private void OnEnable()
     {
         AlbedoWallLightGlobals.RegisterGate(this);
+        AutoAssignGodRayPrefab();
         SyncVisualTint();
     }
 
-    private void OnValidate() => SyncVisualTint();
+    private void OnValidate()
+    {
+        AutoAssignGodRayPrefab();
+        SyncVisualTint();
+    }
+
+    private void AutoAssignGodRayPrefab()
+    {
+#if UNITY_EDITOR
+        if (godRayPrefab == null)
+            godRayPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>("Assets/GodRay_Mystic.prefab");
+#endif
+    }
 
     private void OnDisable()
     {
@@ -212,12 +229,15 @@ public class ChromaticFilterGate : MonoBehaviour
         ref PrismaController emitter, string childName, Color filterColor, Color incomingColor,
         float strength, Vector3 incomingDir, float yawOffset, Transform customExit, bool activeBranch)
     {
-        Color filtered = AlbedoColorUtility.ComputeEmittedColor(filterColor, incomingColor, PrismColorMode.Multiply);
-        float maxChannel = Mathf.Max(filtered.r, Mathf.Max(filtered.g, filtered.b));
-        if (!activeBranch || maxChannel <= 0.05f)
+        if (!activeBranch)
         {
             DisableEmitter(emitter);
             return;
+        }
+        Color filtered = AlbedoColorUtility.ComputeEmittedColor(filterColor, incomingColor, PrismColorMode.Multiply);
+        if (Mathf.Max(filtered.r, Mathf.Max(filtered.g, filtered.b)) <= 0.05f)
+        {
+            filtered = filterColor;
         }
 
         if (emitter == null)
@@ -233,6 +253,7 @@ public class ChromaticFilterGate : MonoBehaviour
         Vector3 outPos = customExit != null ? customExit.position : (transform.position + outDir * exitThicknessOffset);
 
         emitter.transform.SetPositionAndRotation(outPos, Quaternion.LookRotation(outDir, Vector3.up));
+        if (godRayPrefab != null) emitter.GodRayPrefab = godRayPrefab;
         emitter.PrismColor = filterColor;
         emitter.SetSyntheticInput(true, filtered, strength);
     }
