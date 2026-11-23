@@ -4,17 +4,47 @@
 #define ALBEDO_MAX_TORCHES 16
 
 int _AlbedoTorchCount;
-float4 _AlbedoTorchSpheres[ALBEDO_MAX_TORCHES]; // xyz = centerWS, w = suppressionRadius
-float4 _AlbedoTorchParams[ALBEDO_MAX_TORCHES];  // x = edgeSoftness (0.05..0.95), y = strength (0..1)
+float4 _AlbedoTorchSpheres[ALBEDO_MAX_TORCHES];   // xyz = centerWS, w = suppressionRadius
+float4 _AlbedoTorchParams[ALBEDO_MAX_TORCHES];    // x = edgeSoftness (0.05..0.95), y = strength (0..1), z = isHeld (0 ou 1)
+float4 _AlbedoTorchFacing[ALBEDO_MAX_TORCHES];    // xyz = playerForward (plano XZ), w = isHeld (1.0 se segurada, 0.0 se solta)
+float4 _AlbedoTorchPlayerPos[ALBEDO_MAX_TORCHES]; // xyz = playerBodyCenterWS, w = bodyRadius
 
-float EvaluateTorchHoleMask(float3 positionWS, float3 center, float radius, float softness, float strength, float dist)
+float EvaluatePlayerBodyTorchOcclusion(float3 positionWS, int torchIdx)
+{
+    float isHeld = _AlbedoTorchFacing[torchIdx].w;
+    if (isHeld < 0.5) return 1.0; // Tocha no chão emite em 360 graus livremente
+
+    float3 playerFwd = _AlbedoTorchFacing[torchIdx].xyz;
+    float3 playerPos = _AlbedoTorchPlayerPos[torchIdx].xyz;
+    float bodyRadius = max(_AlbedoTorchPlayerPos[torchIdx].w, 0.45);
+
+    // Vetores no plano horizontal XZ relativos ao jogador
+    float2 toPtFromPlayer = positionWS.xz - playerPos.xz;
+    float distFromPlayer = length(toPtFromPlayer);
+    float2 dirFromPlayer = distFromPlayer > 0.001 ? (toPtFromPlayer / distFromPlayer) : playerFwd.xz;
+
+    // Zona segura dos pés: o chão sob os pés do jogador e ao redor do corpo
+    // é 100% preservado com sombra para o jogador poder andar nas pontes de sombra.
+    float footSafeRadius = max(0.95, bodyRadius * 1.85);
+    float footSafeZone = 1.0 - smoothstep(footSafeRadius * 0.75, footSafeRadius, distFromPlayer);
+    if (footSafeZone >= 0.999) return 1.0;
+
+    // Fora da zona dos pés, o corpo bloqueia a "escuridão" apenas nas costas do personagem (dot < 0):
+    float dotPlayer = dot(dirFromPlayer, playerFwd.xz);
+    float backBlock = (1.0 - smoothstep(-0.35, 0.15, dotPlayer)) * (1.0 - footSafeZone);
+
+    return saturate(1.0 - backBlock);
+}
+
+float EvaluateTorchHoleMask(float3 positionWS, float3 center, float radius, float softness, float strength, float dist, int torchIdx)
 {
     float3 dir = dist > 0.0001 ? normalize(positionWS - center) : float3(0.0, 1.0, 0.0);
     float rippleScale = saturate(dist / max(radius * 0.2, 0.001));
     float ripple = sin(dir.x * 5.0 + _Time.y * 2.2) * cos(dir.z * 5.0 - _Time.y * 1.8) * 0.05 * radius * rippleScale;
     float innerR = radius * (1.0 - softness);
     float holeMask = 1.0 - smoothstep(innerR, radius, dist + ripple);
-    return holeMask * strength;
+    float bodyOcc = EvaluatePlayerBodyTorchOcclusion(positionWS, torchIdx);
+    return holeMask * strength * bodyOcc;
 }
 
 float EvaluateTorchShadowCarve(float3 positionWS, bool volumetricViewCompensation)
@@ -45,7 +75,7 @@ float EvaluateTorchShadowCarve(float3 positionWS, bool volumetricViewCompensatio
             dist = distance(positionWS, center);
         }
 
-        maxCarve = max(maxCarve, EvaluateTorchHoleMask(positionWS, center, radius, softness, strength, dist));
+        maxCarve = max(maxCarve, EvaluateTorchHoleMask(positionWS, center, radius, softness, strength, dist, i));
     }
 
     return saturate(maxCarve);
@@ -65,6 +95,8 @@ float EvaluateTorchBeamCarve(
     float fullConeLen,
     bool isHorizontalPrismBeam)
 {
+
+
     int torchCount = min(_AlbedoTorchCount, ALBEDO_MAX_TORCHES);
     if (torchCount <= 0) return 0.0;
 
@@ -104,7 +136,7 @@ float EvaluateTorchBeamCarve(
             dist = length(delta);
         }
 
-        maxCarve = max(maxCarve, EvaluateTorchHoleMask(positionWS, center, radius, softness, strength, dist));
+        maxCarve = max(maxCarve, EvaluateTorchHoleMask(positionWS, center, radius, softness, strength, dist, i));
     }
 
     return saturate(maxCarve);

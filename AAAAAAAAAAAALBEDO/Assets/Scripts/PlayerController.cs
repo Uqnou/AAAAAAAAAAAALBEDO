@@ -16,6 +16,7 @@ public class PlayerController : MonoBehaviour
     [Header("Interação (Pegar / Soltar / Rotacionar)")]
     [SerializeField] private float interactionRadius = 2.5f;
     [SerializeField] private Transform holdPoint;
+    [SerializeField] private Transform offHandPoint;
     [SerializeField] private float dropForwardForce = 0f;
     [SerializeField] private float heldObjectRotateSpeed = 75f;
     [SerializeField] private float rotationStep = 7.5f;
@@ -24,11 +25,22 @@ public class PlayerController : MonoBehaviour
     private float verticalVelocity = 0f;
     private Vector3 lastSafeGroundedPosition;
     private PickableObject heldObject = null;
+    private PickableObject offHandObject = null;
     private PickableObject nearestObject = null;
     private BlackFireBrazier nearestBrazier = null;
     private PrismSnapSlot nearestSlot = null;
+    private bool torchDirectionLocked = false;
 
     public PickableObject HeldObject => heldObject;
+    public PickableObject OffHandObject => offHandObject;
+    public PickableObject OffHandTorch => IsTorch(offHandObject) ? offHandObject : (IsTorch(heldObject) ? heldObject : null);
+    public bool HasTorchEquipped => IsTorch(heldObject) || IsTorch(offHandObject);
+
+    public static bool IsTorch(PickableObject obj)
+    {
+        if (obj == null) return false;
+        return obj.GetComponent<TorchController>() != null || obj.name.IndexOf("Tocha", System.StringComparison.OrdinalIgnoreCase) >= 0;
+    }
 
     private void Awake()
     {
@@ -38,9 +50,17 @@ public class PlayerController : MonoBehaviour
         {
             GameObject hp = new GameObject("HoldPoint");
             hp.transform.SetParent(transform);
-            hp.transform.localPosition = new Vector3(0, 0.4f, 1.1f);
+            hp.transform.localPosition = new Vector3(0, 0.4f, 1.05f);
             holdPoint = hp.transform;
         }
+        if (offHandPoint == null)
+        {
+            GameObject ohp = new GameObject("OffHandPoint");
+            ohp.transform.SetParent(transform);
+            ohp.transform.localPosition = new Vector3(-0.40f, 0.40f, 0.95f);
+            offHandPoint = ohp.transform;
+        }
+        UpdateHoldPointsPositions();
         if (Application.isPlaying) EnsureSceneInteractiveObjects();
     }
 
@@ -88,9 +108,40 @@ public class PlayerController : MonoBehaviour
     private void Update()
     {
         HandleMovement();
+        SyncPrismOrientationWhenDualWielding();
         CheckInteractionProximity();
         HandleHeldObjectRotation();
         HandleInteractionInput();
+    }
+
+    private void SyncPrismOrientationWhenDualWielding()
+    {
+        bool p1 = heldObject != null && heldObject.GetComponent<PrismaController>() != null;
+        bool p2 = offHandObject != null && offHandObject.GetComponent<PrismaController>() != null;
+
+        // Se ambos forem prismas (2 prismas): se comportam como prismas normais girados juntos com Q/R
+        if (p1 && p2)
+        {
+            heldObject.MaintainWorldYawWhileHeld = true;
+            offHandObject.MaintainWorldYawWhileHeld = true;
+            return;
+        }
+
+        // Se há 2 itens e um deles é prisma (ex: Tocha + Prisma):
+        // o prisma fica mirado para a frente e sua luz segue o jogador
+        if ((heldObject != null && offHandObject != null) && (p1 || p2))
+        {
+            if (p1)
+            {
+                heldObject.MaintainWorldYawWhileHeld = false;
+                heldObject.ResetHoldYawOffset();
+            }
+            if (p2)
+            {
+                offHandObject.MaintainWorldYawWhileHeld = false;
+                offHandObject.ResetHoldYawOffset();
+            }
+        }
     }
 
     private void HandleMovement()
@@ -112,7 +163,12 @@ public class PlayerController : MonoBehaviour
 
             Vector3 worldDirection = Quaternion.Euler(0f, targetAngle, 0f) * Vector3.forward;
             moveDir = worldDirection.normalized;
-            transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(worldDirection), rotationSpeed * Time.deltaTime);
+
+            // Se mudou a direção com Q/R enquanto segura a tocha, mantém a direção fixa sem girar pelo WASD
+            if (!HasTorchEquipped || !torchDirectionLocked)
+            {
+                transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(worldDirection), rotationSpeed * Time.deltaTime);
+            }
         }
 
         verticalVelocity = characterController.isGrounded ? -0.5f : (verticalVelocity - gravity * Time.deltaTime);
@@ -190,22 +246,26 @@ public class PlayerController : MonoBehaviour
         Collider[] hitColliders = Physics.OverlapSphere(transform.position, interactionRadius, ~0, QueryTriggerInteraction.Collide);
         nearestBrazier = FindClosestVisible<BlackFireBrazier>(hitColliders);
 
-        if (heldObject != null)
+        // Procura slot compatível para a mão principal ou secundária
+        PrismSnapSlot slotForMain = heldObject != null ? FindNearestSnapSlot(heldObject) : null;
+        PrismSnapSlot slotForOff = offHandObject != null ? FindNearestSnapSlot(offHandObject) : null;
+        PrismSnapSlot closestSlot = slotForMain ?? slotForOff;
+        if (closestSlot != nearestSlot)
+        {
+            if (nearestSlot != null) nearestSlot.HidePrompt();
+            nearestSlot = closestSlot;
+            if (nearestSlot != null) nearestSlot.ShowPrompt();
+        }
+
+        // Se ambas as mãos estiverem cheias (2 itens segurados), não pega um 3º item
+        if (heldObject != null && offHandObject != null)
         {
             if (nearestObject != null) { nearestObject.OnPlayerLeave(); nearestObject = null; }
-            PrismSnapSlot closestSlot = FindNearestSnapSlot(heldObject);
-            if (closestSlot != nearestSlot)
-            {
-                if (nearestSlot != null) nearestSlot.HidePrompt();
-                nearestSlot = closestSlot;
-                if (nearestSlot != null) nearestSlot.ShowPrompt();
-            }
             return;
         }
 
-        if (nearestSlot != null) { nearestSlot.HidePrompt(); nearestSlot = null; }
-
-        PickableObject closest = FindClosestVisible<PickableObject>(hitColliders, p => !p.IsPickedUp);
+        // Se tem pelo menos uma mão livre, procura objetos no chão
+        PickableObject closest = FindClosestVisible<PickableObject>(hitColliders, p => !p.IsPickedUp && p != heldObject && p != offHandObject);
         if (closest != nearestObject)
         {
             if (nearestObject != null) nearestObject.OnPlayerLeave();
@@ -216,46 +276,201 @@ public class PlayerController : MonoBehaviour
 
     private void HandleHeldObjectRotation()
     {
-        if (heldObject == null) return;
+        bool hasTorch = HasTorchEquipped;
+        if (heldObject == null && offHandObject == null) return;
+
         Keyboard keyboard = Keyboard.current;
+        float rotateInput = 0f;
         if (keyboard != null)
         {
-            float rotateInput = (keyboard.rKey.isPressed ? 1f : 0f) - (keyboard.qKey.isPressed ? 1f : 0f);
-            if (Mathf.Abs(rotateInput) > 0.01f)
-            {
-                float fineMult = (keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed) ? 0.35f : 1f;
-                heldObject.RotateY(rotateInput * heldObjectRotateSpeed * fineMult * Time.deltaTime);
-            }
+            rotateInput = (keyboard.rKey.isPressed ? 1f : 0f) - (keyboard.qKey.isPressed ? 1f : 0f);
         }
         Mouse mouse = Mouse.current;
-        if (mouse != null && Mathf.Abs(mouse.scroll.ReadValue().y) > 0.01f)
-            heldObject.RotateY(Mathf.Sign(mouse.scroll.ReadValue().y) * rotationStep);
+        float mouseScroll = (mouse != null && Mathf.Abs(mouse.scroll.ReadValue().y) > 0.01f)
+            ? Mathf.Sign(mouse.scroll.ReadValue().y) : 0f;
+
+        float fineMult = (keyboard != null && (keyboard.leftShiftKey.isPressed || keyboard.rightShiftKey.isPressed)) ? 0.35f : 1f;
+
+        if (Mathf.Abs(rotateInput) > 0.01f)
+        {
+            float delta = rotateInput * heldObjectRotateSpeed * fineMult * Time.deltaTime;
+            if (hasTorch)
+            {
+                // Trava e mantém a direção escolhida no Q/R enquanto segurar a tocha
+                torchDirectionLocked = true;
+                // Vira o corpo do próprio personagem de lado ao girar com Q/R
+                transform.Rotate(Vector3.up, delta, Space.World);
+            }
+            else
+            {
+                if (heldObject != null) heldObject.RotateY(delta);
+                if (offHandObject != null) offHandObject.RotateY(delta);
+            }
+        }
+        else if (Mathf.Abs(mouseScroll) > 0.01f)
+        {
+            float delta = mouseScroll * rotationStep;
+            if (hasTorch)
+            {
+                // Trava e mantém a direção escolhida no scroll enquanto segurar a tocha
+                torchDirectionLocked = true;
+                // Vira o corpo do próprio personagem de lado ao girar com o mouse
+                transform.Rotate(Vector3.up, delta, Space.World);
+            }
+            else
+            {
+                if (heldObject != null) heldObject.RotateY(delta);
+                if (offHandObject != null) offHandObject.RotateY(delta);
+            }
+        }
     }
 
     private void HandleInteractionInput()
     {
         Keyboard keyboard = Keyboard.current;
-        if (keyboard == null || !keyboard.eKey.wasPressedThisFrame) return;
+        if (keyboard == null) return;
 
-        if (heldObject != null)
+        // TECLA [F]: Dropar / Soltar itens segurados (mão principal primeiro)
+        if (keyboard.fKey.wasPressedThisFrame)
         {
+            if (heldObject != null)
+            {
+                DropHeldObject();
+                return;
+            }
+            if (offHandObject != null)
+            {
+                DropOffHandObject();
+                return;
+            }
+        }
+
+        // TECLA [E]: Interagir (Braseiro / Encaixar em Pedestal / Pegar do Chão)
+        if (keyboard.eKey.wasPressedThisFrame)
+        {
+            // 1. Braseiro: acende tochas apagadas seguradas em qualquer uma das mãos
             if (nearestBrazier != null)
             {
-                TorchController heldTorch = heldObject.GetComponent<TorchController>();
-                if (heldTorch != null && !heldTorch.IsLit) { nearestBrazier.TryIgniteTorch(heldTorch); return; }
+                TorchController torchInMain = heldObject != null ? heldObject.GetComponent<TorchController>() : null;
+                TorchController torchInOff = offHandObject != null ? offHandObject.GetComponent<TorchController>() : null;
+                if (torchInMain != null && !torchInMain.IsLit) { nearestBrazier.TryIgniteTorch(torchInMain); return; }
+                if (torchInOff != null && !torchInOff.IsLit) { nearestBrazier.TryIgniteTorch(torchInOff); return; }
             }
-            PrismSnapSlot targetSlot = (nearestSlot != null && nearestSlot.CanAccept(heldObject)) ? nearestSlot : FindNearestSnapSlot(heldObject);
-            if (targetSlot != null) { targetSlot.SnapObject(heldObject); heldObject = null; nearestSlot = null; return; }
-            DropHeldObject();
+
+            // 2. Se houver um slot próximo e tivermos item compatível para encaixar
+            if (nearestSlot != null)
+            {
+                if (heldObject != null && nearestSlot.CanAccept(heldObject))
+                {
+                    PickableObject toSnap = heldObject;
+                    heldObject = null;
+                    toSnap.GetComponent<TorchController>()?.SetHoldingPlayer(null);
+                    nearestSlot.SnapObject(toSnap);
+                    nearestSlot = null;
+                    PromoteOffHandToMain();
+                    UpdateHoldPointsPositions();
+                    return;
+                }
+                if (offHandObject != null && nearestSlot.CanAccept(offHandObject))
+                {
+                    PickableObject toSnap = offHandObject;
+                    offHandObject = null;
+                    toSnap.GetComponent<TorchController>()?.SetHoldingPlayer(null);
+                    nearestSlot.SnapObject(toSnap);
+                    nearestSlot = null;
+                    UpdateHoldPointsPositions();
+                    return;
+                }
+            }
+
+            // 3. Se houver um objeto próximo no chão e tivermos mão livre, pega o objeto!
+            if (nearestObject != null && (heldObject == null || offHandObject == null))
+            {
+                PickableObject target = nearestObject;
+                nearestObject = null;
+                target.OnPlayerLeave();
+
+                if (heldObject == null)
+                {
+                    heldObject = target;
+                    UpdateHoldPointsPositions();
+                    heldObject.PickUp(holdPoint);
+                    if (IsTorch(heldObject)) heldObject.GetComponent<TorchController>()?.SetHoldingPlayer(this);
+                }
+                else
+                {
+                    offHandObject = target;
+                    UpdateHoldPointsPositions();
+                    offHandObject.PickUp(offHandPoint);
+                    if (IsTorch(offHandObject)) offHandObject.GetComponent<TorchController>()?.SetHoldingPlayer(this);
+
+                    // Se ambos forem prismas, sincroniza a mira do segundo com o primeiro para girarem juntos
+                    if (heldObject.GetComponent<PrismaController>() != null && offHandObject.GetComponent<PrismaController>() != null)
+                    {
+                        offHandObject.SetHeldWorldYaw(heldObject.HeldWorldYaw);
+                    }
+                }
+                SyncPrismOrientationWhenDualWielding();
+                return;
+            }
         }
-        else if (nearestObject != null) { heldObject = nearestObject; nearestObject = null; heldObject.PickUp(holdPoint); }
+    }
+
+    private void UpdateHoldPointsPositions()
+    {
+        if (holdPoint == null || offHandPoint == null) return;
+        if (heldObject != null && offHandObject != null)
+        {
+            // Ambas as mãos ocupadas: separa uma na mão direita e outra na mão esquerda
+            holdPoint.localPosition = new Vector3(0.40f, 0.40f, 0.95f);
+            offHandPoint.localPosition = new Vector3(-0.40f, 0.40f, 0.95f);
+        }
+        else
+        {
+            // Apenas 1 item (ou nenhum): mantém o holdPoint centralizado na frente do jogador
+            holdPoint.localPosition = new Vector3(0f, 0.40f, 1.05f);
+            offHandPoint.localPosition = new Vector3(-0.40f, 0.40f, 0.95f);
+        }
+    }
+
+    private void PromoteOffHandToMain()
+    {
+        if (offHandObject != null && heldObject == null)
+        {
+            heldObject = offHandObject;
+            offHandObject = null;
+            UpdateHoldPointsPositions();
+            heldObject.PickUp(holdPoint);
+        }
     }
 
     private void DropHeldObject()
     {
         if (heldObject == null) return;
+        heldObject.GetComponent<TorchController>()?.SetHoldingPlayer(null);
+        SafelyPositionForDrop(heldObject, holdPoint != null ? holdPoint.position : heldObject.transform.position);
+        heldObject.Drop(dropForwardForce > 0.001f ? transform.forward * dropForwardForce : Vector3.zero);
+        heldObject = null;
+        PromoteOffHandToMain();
+        UpdateHoldPointsPositions();
+        if (!HasTorchEquipped) torchDirectionLocked = false;
+    }
+
+    private void DropOffHandObject()
+    {
+        if (offHandObject == null) return;
+        offHandObject.GetComponent<TorchController>()?.SetHoldingPlayer(null);
+        SafelyPositionForDrop(offHandObject, offHandPoint != null ? offHandPoint.position : offHandObject.transform.position);
+        offHandObject.Drop(Vector3.zero);
+        offHandObject = null;
+        UpdateHoldPointsPositions();
+        if (!HasTorchEquipped) torchDirectionLocked = false;
+    }
+
+    private void SafelyPositionForDrop(PickableObject obj, Vector3 dest)
+    {
+        if (obj == null) return;
         Vector3 origin = transform.position + Vector3.up * 0.4f;
-        Vector3 dest = holdPoint != null ? holdPoint.position : heldObject.transform.position;
         Vector3 delta = dest - origin;
         float dist = delta.magnitude;
         if (dist > 0.05f)
@@ -266,16 +481,14 @@ public class PlayerController : MonoBehaviour
             for (int i = 0; i < hits.Length; i++)
             {
                 Collider c = hits[i].collider;
-                if (c == null || c.transform.IsChildOf(transform) || c.transform.IsChildOf(heldObject.transform)) continue;
+                if (c == null || c.transform.IsChildOf(transform) || c.transform.IsChildOf(obj.transform)) continue;
                 SombraController sombra = c.GetComponentInParent<SombraController>();
                 if (sombra != null && (sombra.Mode == ShadowMode.WalkableBridge || (sombra.Mode == ShadowMode.Barrier && sombra.IsPassableAtPoint(hits[i].point, 0.45f)))) continue;
-                heldObject.transform.SetParent(null);
-                heldObject.transform.position = origin + dir * Mathf.Max(0.15f, hits[i].distance - 0.35f);
+                obj.transform.SetParent(null);
+                obj.transform.position = origin + dir * Mathf.Max(0.15f, hits[i].distance - 0.35f);
                 break;
             }
         }
-        heldObject.Drop(dropForwardForce > 0.001f ? transform.forward * dropForwardForce : Vector3.zero);
-        heldObject = null;
     }
 
     private void OnDrawGizmosSelected() { Gizmos.color = Color.yellow; Gizmos.DrawWireSphere(transform.position, interactionRadius); }

@@ -28,8 +28,21 @@ public class IsometricCamera : MonoBehaviour
     [Tooltip("Distância da câmera até o centro do cenário")]
     [SerializeField] private float cameraDistance = 25f;
 
+    [Header("Transição de Nível (Camera Distance)")]
+    [Tooltip("Distância da câmera no início e término do nível.")]
+    [SerializeField] private float transitionDistance = -72f;
+
+    [Tooltip("Duração da transição ao iniciar a fase (indo de -72 para a distância normal).")]
+    [SerializeField] private float introDuration = 1.4f;
+
+    [Tooltip("Duração da transição ao concluir a fase (indo da distância normal para -72).")]
+    [SerializeField] private float outroDuration = 1.4f;
+
+    [SerializeField] private AnimationCurve levelTransitionCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
+
     private Camera cam;
     private Coroutine transitionCoroutine;
+    private float configuredNormalDistance;
 
     // Propriedades de leitura
     public float PitchAngle => pitchAngle;
@@ -37,6 +50,8 @@ public class IsometricCamera : MonoBehaviour
     public float OrthographicSize => orthographicSize;
     public Vector3 LookTarget => lookTarget;
     public float CameraDistance => cameraDistance;
+    public float ConfiguredNormalDistance => configuredNormalDistance;
+    public float TransitionDistance => transitionDistance;
 
     private void Awake()
     {
@@ -51,8 +66,50 @@ public class IsometricCamera : MonoBehaviour
         }
 
         cam = GetComponent<Camera>();
+        configuredNormalDistance = cameraDistance;
         ApplyHDQualitySettings();
         ApplyIsometricSettings();
+    }
+
+    private void Start()
+    {
+        if (Application.isPlaying)
+        {
+            PlayIntroTransition();
+        }
+    }
+
+    public void PlayIntroTransition()
+    {
+        cameraDistance = transitionDistance;
+        ApplyIsometricSettings();
+        if (transitionCoroutine != null) StopCoroutine(transitionCoroutine);
+        transitionCoroutine = StartCoroutine(TransitionDistanceRoutine(transitionDistance, configuredNormalDistance, introDuration, null));
+    }
+
+    public void PlayOutroTransition(System.Action onComplete = null)
+    {
+        if (transitionCoroutine != null) StopCoroutine(transitionCoroutine);
+        transitionCoroutine = StartCoroutine(TransitionDistanceRoutine(cameraDistance, transitionDistance, outroDuration, onComplete));
+    }
+
+    private IEnumerator TransitionDistanceRoutine(float startDist, float targetDist, float duration, System.Action onComplete)
+    {
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+            float evaluatedT = levelTransitionCurve != null ? levelTransitionCurve.Evaluate(t) : Mathf.SmoothStep(0f, 1f, t);
+            cameraDistance = Mathf.Lerp(startDist, targetDist, evaluatedT);
+            ApplyIsometricSettings();
+            yield return null;
+        }
+
+        cameraDistance = targetDist;
+        ApplyIsometricSettings();
+        transitionCoroutine = null;
+        onComplete?.Invoke();
     }
 
     private void ApplyHDQualitySettings()

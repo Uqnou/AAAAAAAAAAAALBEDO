@@ -24,6 +24,7 @@ public static class AlbedoWallLightGlobals
     private static readonly Vector4[] BeamStarts = new Vector4[MaxBeams], BeamDirs = new Vector4[MaxBeams];
     private static readonly Vector4[] BeamColors = new Vector4[MaxBeams], BeamParams = new Vector4[MaxBeams];
     private static readonly Vector4[] TorchSpheres = new Vector4[MaxTorches], TorchParams = new Vector4[MaxTorches];
+    private static readonly Vector4[] TorchFacing = new Vector4[MaxTorches], TorchPlayerPos = new Vector4[MaxTorches];
 
     private static readonly int BeamCountId = Shader.PropertyToID("_AlbedoBeamCount");
     private static readonly int BeamStartsId = Shader.PropertyToID("_AlbedoBeamStarts");
@@ -33,6 +34,8 @@ public static class AlbedoWallLightGlobals
     private static readonly int TorchCountId = Shader.PropertyToID("_AlbedoTorchCount");
     private static readonly int TorchSpheresId = Shader.PropertyToID("_AlbedoTorchSpheres");
     private static readonly int TorchParamsId = Shader.PropertyToID("_AlbedoTorchParams");
+    private static readonly int TorchFacingId = Shader.PropertyToID("_AlbedoTorchFacing");
+    private static readonly int TorchPlayerPosId = Shader.PropertyToID("_AlbedoTorchPlayerPos");
 
     private static bool arraysInitialized = false;
     private static int activeBeamCount = 0, activeTorchCount = 0, lastPushFrame = -1;
@@ -134,6 +137,7 @@ public static class AlbedoWallLightGlobals
             Shader.SetGlobalVectorArray(BeamStartsId, BeamStarts); Shader.SetGlobalVectorArray(BeamDirsId, BeamDirs);
             Shader.SetGlobalVectorArray(BeamColorsId, BeamColors); Shader.SetGlobalVectorArray(BeamParamsId, BeamParams);
             Shader.SetGlobalVectorArray(TorchSpheresId, TorchSpheres); Shader.SetGlobalVectorArray(TorchParamsId, TorchParams);
+            Shader.SetGlobalVectorArray(TorchFacingId, TorchFacing); Shader.SetGlobalVectorArray(TorchPlayerPosId, TorchPlayerPos);
             arraysInitialized = true;
         }
 
@@ -192,6 +196,23 @@ public static class AlbedoWallLightGlobals
             Vector3 p = t.transform.position;
             TorchSpheres[tCount] = new Vector4(p.x, p.y, p.z, t.SuppressionRadius);
             TorchParams[tCount] = new Vector4(t.HoleEdgeSoftness, 1f, t.IsHeldByPlayer ? 1f : 0f, 0f);
+
+            PlayerController hp = t.HoldingPlayer;
+            if (t.IsHeldByPlayer && hp != null)
+            {
+                Vector3 fwd = hp.transform.forward;
+                fwd.y = 0f;
+                if (fwd.sqrMagnitude > 0.0001f) fwd.Normalize(); else fwd = Vector3.forward;
+                TorchFacing[tCount] = new Vector4(fwd.x, 0f, fwd.z, 1f);
+                Vector3 playerBody = hp.transform.position + Vector3.up * 0.9f;
+                TorchPlayerPos[tCount] = new Vector4(playerBody.x, playerBody.y, playerBody.z, 0.45f);
+            }
+            else
+            {
+                TorchFacing[tCount] = Vector4.zero;
+                TorchPlayerPos[tCount] = Vector4.zero;
+            }
+
             tCount++;
         }
         activeTorchCount = tCount;
@@ -204,15 +225,51 @@ public static class AlbedoWallLightGlobals
             Shader.SetGlobalVectorArray(BeamColorsId, BeamColors); Shader.SetGlobalVectorArray(BeamParamsId, BeamParams);
         }
         Shader.SetGlobalInt(TorchCountId, tCount);
-        if (tCount > 0) { Shader.SetGlobalVectorArray(TorchSpheresId, TorchSpheres); Shader.SetGlobalVectorArray(TorchParamsId, TorchParams); }
+        if (tCount > 0)
+        {
+            Shader.SetGlobalVectorArray(TorchSpheresId, TorchSpheres);
+            Shader.SetGlobalVectorArray(TorchParamsId, TorchParams);
+            Shader.SetGlobalVectorArray(TorchFacingId, TorchFacing);
+            Shader.SetGlobalVectorArray(TorchPlayerPosId, TorchPlayerPos);
+        }
     }
 
-    private static float ComputeTorchMask(int idx, float dist)
+    private static float ComputeTorchMask(int idx, float dist, Vector3 worldPos)
     {
         float radius = Mathf.Max(TorchSpheres[idx].w, 0.05f), softness = Mathf.Clamp(TorchParams[idx].x, 0.05f, 0.95f);
         if (dist >= radius) return 0f;
         float innerR = radius * (1f - softness), t = Mathf.Clamp01((dist - innerR) / Mathf.Max(0.0001f, radius - innerR));
-        return (1f - t * t * (3f - 2f * t)) * Mathf.Clamp01(TorchParams[idx].y);
+        float mask = (1f - t * t * (3f - 2f * t)) * Mathf.Clamp01(TorchParams[idx].y);
+
+        if (TorchFacing[idx].w > 0.5f)
+        {
+            Vector2 fwd = new Vector2(TorchFacing[idx].x, TorchFacing[idx].z);
+            Vector2 pPos = new Vector2(TorchPlayerPos[idx].x, TorchPlayerPos[idx].z);
+            Vector2 wPos = new Vector2(worldPos.x, worldPos.z);
+            float bodyRadius = Mathf.Max(TorchPlayerPos[idx].w, 0.45f);
+
+            Vector2 toPtP = wPos - pPos;
+            float dP = toPtP.magnitude;
+            Vector2 dirP = dP > 0.001f ? toPtP / dP : fwd;
+
+            // Zona segura dos pés: garante que a sombra sob os pés do jogador nunca seja tirada
+            float footSafeRadius = Mathf.Max(0.95f, bodyRadius * 1.85f);
+            float tFoot = Mathf.Clamp01((dP - footSafeRadius * 0.75f) / Mathf.Max(0.0001f, footSafeRadius * 0.25f));
+            float footSafeZone = 1f - tFoot * tFoot * (3f - 2f * tFoot);
+
+            if (footSafeZone < 0.999f)
+            {
+                // Fora dos pés, bloqueia a tocha apenas nas costas do personagem (dot < 0)
+                float dotP = Vector2.Dot(dirP, fwd);
+                float tDot = Mathf.Clamp01((dotP - (-0.35f)) / (0.15f - (-0.35f)));
+                float dotSmooth = tDot * tDot * (3f - 2f * tDot);
+
+                float backBlock = (1f - dotSmooth) * (1f - footSafeZone);
+                mask *= Mathf.Clamp01(1f - backBlock);
+            }
+        }
+
+        return mask;
     }
 
     public static float EvaluateTorchLightMultiplier(Vector3 worldPos)
@@ -221,7 +278,7 @@ public static class AlbedoWallLightGlobals
         if (activeTorchCount <= 0) return 1f;
         float maxCarve = 0f;
         for (int i = 0; i < activeTorchCount; i++)
-            maxCarve = Mathf.Max(maxCarve, ComputeTorchMask(i, Vector3.Distance(worldPos, new Vector3(TorchSpheres[i].x, TorchSpheres[i].y, TorchSpheres[i].z))));
+            maxCarve = Mathf.Max(maxCarve, ComputeTorchMask(i, Vector3.Distance(worldPos, new Vector3(TorchSpheres[i].x, TorchSpheres[i].y, TorchSpheres[i].z)), worldPos));
         return 1f - Mathf.Clamp01(maxCarve);
     }
 
@@ -247,14 +304,14 @@ public static class AlbedoWallLightGlobals
             }
             else delta = worldPos - center;
             if (isHorizontalPrismBeam) delta.y *= 0.55f;
-            maxCarve = Mathf.Max(maxCarve, ComputeTorchMask(i, delta.magnitude));
+            maxCarve = Mathf.Max(maxCarve, ComputeTorchMask(i, delta.magnitude, worldPos));
         }
         return 1f - Mathf.Clamp01(maxCarve);
     }
 
     public static bool EvaluateCarveAtPoint(
         Vector3 worldPos, float marginRadius, Color requiredColor, bool enforceExactColor, float colorTolerance,
-        float holeScale = 1f, float holeOffset = 0f, bool ignorePrismBeams = false)
+        float holeScale = 1f, float holeOffset = 0f, bool ignorePrismBeams = false, bool ignoreCeilingBeams = false)
     {
         if (Application.isPlaying && lastPushFrame != Time.frameCount) PushToShaderGlobals();
         if (activeBeamCount <= 0) return false;
@@ -262,6 +319,7 @@ public static class AlbedoWallLightGlobals
         for (int i = 0; i < activeBeamCount; i++)
         {
             if (ignorePrismBeams && BeamParams[i].y > 0.5f) continue;
+            if (ignoreCeilingBeams && BeamParams[i].y < 0.5f) continue;
             float strength = BeamParams[i].z; if (strength <= 0.05f) continue;
             Vector3 origin = new Vector3(BeamStarts[i].x, BeamStarts[i].y, BeamStarts[i].z), dir = new Vector3(BeamDirs[i].x, BeamDirs[i].y, BeamDirs[i].z);
             float hitLen = Mathf.Max(BeamDirs[i].w, 0.001f); Vector3 toP = worldPos - origin; float tProj = Vector3.Dot(toP, dir);

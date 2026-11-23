@@ -52,7 +52,23 @@ public class LevelExitButton : MonoBehaviour
         Debug.Log($"[ALBEDO] Nível concluído em '{gameObject.name}'!");
         onLevelCompleted?.Invoke();
 
-        if (loadNextSceneInBuild)
+        // Pausa temporariamente o movimento do jogador durante a transição final
+        PlayerController player = Object.FindFirstObjectByType<PlayerController>();
+        if (player != null) player.enabled = false;
+
+        IsometricCamera isoCam = IsometricCamera.Instance != null ? IsometricCamera.Instance : Object.FindFirstObjectByType<IsometricCamera>();
+        if (isoCam != null)
+        {
+            // Transiciona suavemente a câmera do valor normal para -72 e então carrega a próxima fase
+            isoCam.PlayOutroTransition(() =>
+            {
+                if (loadNextSceneInBuild)
+                {
+                    LoadNextScene();
+                }
+            });
+        }
+        else if (loadNextSceneInBuild)
         {
             Invoke(nameof(LoadNextScene), nextSceneDelay);
         }
@@ -60,11 +76,11 @@ public class LevelExitButton : MonoBehaviour
 
     private void LoadNextScene()
     {
+        int count = SceneManager.sceneCountInBuildSettings;
+        if (count <= 0) return;
         int nextIndex = SceneManager.GetActiveScene().buildIndex + 1;
-        if (nextIndex < SceneManager.sceneCountInBuildSettings)
-        {
-            SceneManager.LoadScene(nextIndex);
-        }
+        if (nextIndex >= count) nextIndex = 0; // Volta ao início ou loop se for a última cena
+        SceneManager.LoadScene(nextIndex);
     }
 
     private bool IsPlayer(Collider other)

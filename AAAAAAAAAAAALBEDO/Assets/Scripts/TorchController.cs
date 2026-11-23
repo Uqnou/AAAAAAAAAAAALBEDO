@@ -36,9 +36,12 @@ public class TorchController : MonoBehaviour
     private readonly HashSet<LightSource> currentlySuppressedLights = new HashSet<LightSource>();
     private readonly List<LightSource> toRelease = new List<LightSource>();
     private PickableObject pickable;
+    private PlayerController holdingPlayer;
 
     public bool IsLit => isLit;
-    public bool IsHeldByPlayer => pickable != null && pickable.IsPickedUp;
+    public bool IsHeldByPlayer => (pickable != null && pickable.IsPickedUp) || holdingPlayer != null;
+    public PlayerController HoldingPlayer => holdingPlayer != null ? holdingPlayer : GetComponentInParent<PlayerController>();
+    public void SetHoldingPlayer(PlayerController player) => holdingPlayer = player;
     public float SuppressionRadius { get => suppressionRadius; set => suppressionRadius = Mathf.Max(0.1f, value); }
     public float HoleEdgeSoftness => holeEdgeSoftness;
     private bool IsSelfFlameObject => gameObject.name.IndexOf("Fogo", System.StringComparison.OrdinalIgnoreCase) >= 0;

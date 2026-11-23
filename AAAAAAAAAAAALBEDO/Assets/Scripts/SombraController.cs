@@ -71,13 +71,13 @@ public class SombraController : MonoBehaviour
     {
         if (mode == ShadowMode.WalkableBridge || activeIlluminatingPrisms.Count == 0) return false;
         Color reqColor = EffectiveRequiredColor;
-        bool enforceExact = ShouldEnforceExactColor(reqColor), ignorePrism = ShouldIgnorePrismLight();
+        bool enforceExact = ShouldEnforceExactColor(reqColor), ignorePrism = ShouldIgnorePrismLight(), ignoreCeiling = mode == ShadowMode.Barrier;
         GetEffectiveCarveOffsets(out float effScale, out float effOffset);
-        if (AlbedoWallLightGlobals.EvaluateCarveAtPoint(worldPoint, marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism)) return true;
+        if (AlbedoWallLightGlobals.EvaluateCarveAtPoint(worldPoint, marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling)) return true;
         Bounds b = ComputeWorldBounds();
         Vector3 lowProbe = new Vector3(worldPoint.x, Mathf.Lerp(b.min.y, b.max.y, 0.35f), worldPoint.z);
-        if (AlbedoWallLightGlobals.EvaluateCarveAtPoint(lowProbe, marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism)) return true;
-        return AlbedoWallLightGlobals.EvaluateCarveAtPoint(new Vector3(worldPoint.x, 1.95f, worldPoint.z), marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism);
+        if (AlbedoWallLightGlobals.EvaluateCarveAtPoint(lowProbe, marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling)) return true;
+        return AlbedoWallLightGlobals.EvaluateCarveAtPoint(new Vector3(worldPoint.x, 1.95f, worldPoint.z), marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling);
     }
 
     private void GetEffectiveCarveOffsets(out float effScale, out float effOffset)
@@ -168,7 +168,7 @@ public class SombraController : MonoBehaviour
         if (colliders == null || colliders.Length == 0) return;
         if (Time.time >= nextActorRefreshTime) { RefreshDynamicActors(); nextActorRefreshTime = Time.time + 0.5f; }
         Color reqColor = EffectiveRequiredColor;
-        bool enforceExact = ShouldEnforceExactColor(reqColor), ignorePrism = ShouldIgnorePrismLight();
+        bool enforceExact = ShouldEnforceExactColor(reqColor), ignorePrism = ShouldIgnorePrismLight(), ignoreCeiling = mode == ShadowMode.Barrier;
         GetEffectiveCarveOffsets(out float effScale, out float effOffset);
 
         for (int s = 0; s < colliders.Length; s++)
@@ -188,15 +188,15 @@ public class SombraController : MonoBehaviour
                     Vector3 footPt = new Vector3(center.x, sb.max.y, center.z);
                     bool xzOver = ab.max.x >= sb.min.x - 0.1f && ab.min.x <= sb.max.x + 0.1f && ab.max.z >= sb.min.z - 0.1f && ab.min.z <= sb.max.z + 0.1f;
                     bool falling = xzOver && ab.min.y < sb.max.y - 0.15f && ab.max.y > sb.min.y - 0.2f;
-                    carved = falling || AlbedoWallLightGlobals.EvaluateCarveAtPoint(footPt, 0.05f, reqColor, false, colorTolerance, effScale, effOffset, ignorePrism);
+                    carved = falling || AlbedoWallLightGlobals.EvaluateCarveAtPoint(footPt, 0.05f, reqColor, false, colorTolerance, effScale, effOffset, ignorePrism, false);
                 }
                 else
                 {
                     Vector3 cPt = shadowCol.ClosestPoint(center), lPt = shadowCol.ClosestPoint(low);
-                    carved = AlbedoWallLightGlobals.EvaluateCarveAtPoint(cPt, 0.45f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism)
-                          || AlbedoWallLightGlobals.EvaluateCarveAtPoint(lPt, 0.45f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism)
-                          || AlbedoWallLightGlobals.EvaluateCarveAtPoint(center, 0.35f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism)
-                          || AlbedoWallLightGlobals.EvaluateCarveAtPoint(low, 0.35f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism);
+                    carved = AlbedoWallLightGlobals.EvaluateCarveAtPoint(cPt, 0.45f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling)
+                          || AlbedoWallLightGlobals.EvaluateCarveAtPoint(lPt, 0.45f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling)
+                          || AlbedoWallLightGlobals.EvaluateCarveAtPoint(center, 0.35f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling)
+                          || AlbedoWallLightGlobals.EvaluateCarveAtPoint(low, 0.35f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling);
                 }
                 Physics.IgnoreCollision(actorCol, shadowCol, carved);
             }

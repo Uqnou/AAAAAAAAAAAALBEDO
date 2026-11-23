@@ -130,11 +130,13 @@ Shader "Custom/URP_StylizedShadow"
                 float maxWeight = 0.0;
                 float3 accumColor = float3(0.0, 0.0, 0.0);
                 int beamCount = min(_AlbedoBeamCount, ALBEDO_MAX_BEAMS);
-                bool ignorePrismBeams = _InstanceCarveParams.w > 1.5;
+                bool ignorePrismBeams = _InstanceCarveParams.w > 1.5; // WalkableBridge só reage a luzes de teto
+                bool ignoreCeilingBeams = _InstanceCarveParams.w < 1.5; // Barrier (paredes) só reage a feixes de prisma
 
                 [loop] for (int i = 0; i < beamCount; i++)
                 {
                     if (ignorePrismBeams && _AlbedoBeamParams[i].y > 0.5) continue;
+                    if (ignoreCeilingBeams && _AlbedoBeamParams[i].y < 0.5) continue;
                     float strength = _AlbedoBeamParams[i].z;
                     if (strength <= 0.001) continue;
 

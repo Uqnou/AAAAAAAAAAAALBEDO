@@ -23,6 +23,36 @@ public class PickableObject : MonoBehaviour
         set { standUprightWhenHeld = value; if (value) uprightTiltOffset = Quaternion.identity; }
     }
 
+    public bool MaintainWorldYawWhileHeld
+    {
+        get => maintainWorldYawWhileHeld;
+        set => maintainWorldYawWhileHeld = value;
+    }
+
+    public float HeldWorldYaw
+    {
+        get => heldWorldYaw;
+        set { heldWorldYaw = value; ApplyHoldRotation(); }
+    }
+
+    public void SetHeldWorldYaw(float yaw)
+    {
+        heldWorldYaw = yaw;
+        maintainWorldYawWhileHeld = true;
+        holdYawOffset = 0f;
+        ApplyHoldRotation();
+    }
+
+    public void ResetHoldYawOffset()
+    {
+        holdYawOffset = 0f;
+        if (currentHoldPoint != null)
+        {
+            heldWorldYaw = currentHoldPoint.eulerAngles.y;
+            ApplyHoldRotation();
+        }
+    }
+
     private Rigidbody rb;
     private Collider col;
     private InteractionPrompt prompt;
