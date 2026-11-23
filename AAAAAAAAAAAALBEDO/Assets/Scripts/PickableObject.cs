@@ -36,6 +36,8 @@ public class PickableObject : MonoBehaviour
     private Quaternion safeRespawnRotation;
 
     public bool IsPickedUp { get; private set; } = false;
+    public PrismSnapSlot CurrentSlot { get; private set; }
+    public bool IsSnapped => CurrentSlot != null;
 
     private void Awake()
     {
@@ -73,9 +75,12 @@ public class PickableObject : MonoBehaviour
             {
                 gameObject.AddComponent<PrismaController>();
             }
-            else if (string.Equals(gameObject.name, "Cylinder.003", System.StringComparison.OrdinalIgnoreCase) && GetComponent<TorchController>() == null)
+            else if ((string.Equals(gameObject.name, "Cylinder.003", System.StringComparison.OrdinalIgnoreCase)
+                || gameObject.name.IndexOf("Fogo", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                && GetComponent<TorchController>() == null)
             {
-                gameObject.AddComponent<TorchController>();
+                var tc = gameObject.AddComponent<TorchController>();
+                if (gameObject.name.IndexOf("Fogo", System.StringComparison.OrdinalIgnoreCase) >= 0) tc.Ignite();
             }
         }
     }
@@ -95,24 +100,31 @@ public class PickableObject : MonoBehaviour
         uprightTiltOffset = Quaternion.Inverse(Quaternion.Euler(0f, currentYaw, 0f)) * transform.rotation;
     }
 
-    public void OnPlayerApproach()
+    public void OnPlayerApproach() { if (!IsPickedUp && prompt != null) prompt.Show(); }
+    public void OnPlayerLeave() { if (prompt != null) prompt.Hide(); }
+
+    private void ReleaseCurrentSlot()
     {
-        if (!IsPickedUp && prompt != null)
-        {
-            prompt.Show();
-        }
+        if (CurrentSlot == null) return;
+        CurrentSlot.ReleaseObject(this);
+        CurrentSlot = null;
     }
 
-    public void OnPlayerLeave()
+    private void FreezeRigidbodyMotion(bool kinematic)
     {
-        if (prompt != null)
+        if (rb == null) return;
+        if (!rb.isKinematic)
         {
-            prompt.Hide();
+            rb.linearVelocity = Vector3.zero;
+            rb.angularVelocity = Vector3.zero;
         }
+        rb.isKinematic = kinematic;
+        rb.detectCollisions = true;
     }
 
     public void PickUp(Transform holdPoint)
     {
+        ReleaseCurrentSlot();
         CaptureInitialTilt();
         currentHoldPoint = holdPoint;
         holdYawOffset = 0f;
@@ -120,19 +132,8 @@ public class PickableObject : MonoBehaviour
         heldWorldYaw = holdPoint != null ? holdPoint.eulerAngles.y : transform.eulerAngles.y;
         IsPickedUp = true;
 
-        if (prompt != null)
-            prompt.Hide();
-
-        if (rb != null)
-        {
-            if (!rb.isKinematic)
-            {
-                rb.linearVelocity = Vector3.zero;
-                rb.angularVelocity = Vector3.zero;
-            }
-            rb.isKinematic = true;
-            rb.detectCollisions = true;
-        }
+        if (prompt != null) prompt.Hide();
+        FreezeRigidbodyMotion(true);
 
         transform.SetParent(holdPoint);
         transform.localPosition = Vector3.zero;
@@ -187,10 +188,42 @@ public class PickableObject : MonoBehaviour
         transform.rotation = Quaternion.Euler(0f, yaw, 0f) * tilt;
     }
 
-    public void Drop(Vector3 throwForce)
+    public void SnapToSlot(PrismSnapSlot slot, Vector3 targetPosition, Quaternion targetRotation, bool preserveUprightTilt = true)
     {
+        CaptureInitialTilt();
         IsPickedUp = false;
         currentHoldPoint = null;
+        CurrentSlot = slot;
+        if (prompt != null) prompt.Hide();
+        transform.SetParent(null);
+
+        Quaternion finalRot = targetRotation;
+        if (preserveUprightTilt)
+        {
+            Quaternion tilt = standUprightWhenHeld ? Quaternion.identity : uprightTiltOffset;
+            finalRot = Quaternion.Euler(0f, targetRotation.eulerAngles.y, 0f) * tilt;
+        }
+
+        safeRespawnPosition = targetPosition;
+        safeRespawnRotation = finalRot;
+        FreezeRigidbodyMotion(true);
+
+        transform.SetPositionAndRotation(targetPosition, finalRot);
+        Physics.SyncTransforms();
+    }
+
+    public void Drop(Vector3 throwForce)
+    {
+        PrismSnapSlot nearbySlot = PrismSnapSlot.FindClosestAvailableSlot(transform.position, this);
+        if (nearbySlot != null && nearbySlot.AutoSnapOnDropNearby)
+        {
+            nearbySlot.SnapObject(this);
+            return;
+        }
+
+        IsPickedUp = false;
+        currentHoldPoint = null;
+        ReleaseCurrentSlot();
         transform.SetParent(null);
 
         if (Physics.Raycast(transform.position + Vector3.up * 0.2f, Vector3.down, out RaycastHit hit, 3.0f, ~0, QueryTriggerInteraction.Ignore))
@@ -228,4 +261,6 @@ public class PickableObject : MonoBehaviour
             }
         }
     }
+
+    private void OnDestroy() => ReleaseCurrentSlot();
 }

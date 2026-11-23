@@ -3,6 +3,7 @@
 
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+#include "Assets/Shaders/AlbedoTorchCarve.hlsl"
 
 #define ALBEDO_MAX_BEAMS 24
 
@@ -65,6 +66,10 @@ float EvaluateAlbedoWallLight(
     LIGHT_LOOP_END
     #endif
 
+    float unityTorchMult = EvaluateTorchLightMultiplier(positionWS, false);
+    totalIntensity *= unityTorchMult;
+    accumColor *= (half)unityTorchMult;
+
     int beamCount = min(_AlbedoBeamCount, ALBEDO_MAX_BEAMS);
     [loop] for (int i = 0; i < beamCount; i++)
     {
@@ -94,7 +99,8 @@ float EvaluateAlbedoWallLight(
         float facing = saturate(dot(normalWS, normalize(lerp(-dir, toOrigin, 0.45))) * 0.9 + 0.25)
                      * smoothstep(-0.25, 0.05, backCheck);
 
-        float contrib = radialMask * longMask * facing * strength * beamIntensity;
+        float beamTorchMult = EvaluateTorchBeamMultiplier(positionWS, origin, dir, topRadius, bottomRadius, fullLen, _AlbedoBeamParams[i].y > 0.5);
+        float contrib = radialMask * longMask * facing * strength * beamIntensity * beamTorchMult;
         totalIntensity += contrib;
         accumColor += beamCol * (half)contrib;
     }

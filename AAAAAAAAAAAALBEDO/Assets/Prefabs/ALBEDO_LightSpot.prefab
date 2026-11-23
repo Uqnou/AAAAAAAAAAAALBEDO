@@ -136,6 +136,7 @@ MonoBehaviour:
   lightColor: {r: 1, g: 1, b: 1, a: 1}
   syncWithUnityLight: 1
   ensureTriggerCollider: 1
+  suppressionFadeDuration: 1.35
   onLightSuppressed:
     m_PersistentCalls:
       m_Calls: []

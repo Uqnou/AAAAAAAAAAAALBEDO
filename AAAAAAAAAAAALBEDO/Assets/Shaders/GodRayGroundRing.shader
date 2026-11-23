@@ -44,6 +44,7 @@ Shader "Custom/GodRayGroundRing"
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+            #include "Assets/Shaders/AlbedoTorchCarve.hlsl"
 
             struct Attributes
             {
@@ -56,6 +57,7 @@ Shader "Custom/GodRayGroundRing"
                 float4 positionCS   : SV_POSITION;
                 float2 uv           : TEXCOORD0;
                 float4 clipPosCopy  : TEXCOORD1;
+                float3 positionWS   : TEXCOORD2;
             };
 
             CBUFFER_START(UnityPerMaterial)
@@ -85,7 +87,8 @@ Shader "Custom/GodRayGroundRing"
             Varyings vert(Attributes input)
             {
                 Varyings output;
-                output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
+                output.positionWS = TransformObjectToWorld(input.positionOS.xyz);
+                output.positionCS = TransformWorldToHClip(output.positionWS);
                 output.uv = input.uv;
                 output.clipPosCopy = output.positionCS;
                 return output;
@@ -104,6 +107,7 @@ Shader "Custom/GodRayGroundRing"
                 float dist = 0.0;
                 float angleAtten = 1.0;
                 float heightFade = 1.0;
+                float3 surfacePosWS = input.positionWS;
 
                 // Modo projetor 3D via depth buffer (funciona em ortografica e perspectiva)
                 if (_BeamDims.z > 0.001)
@@ -114,6 +118,7 @@ Shader "Custom/GodRayGroundRing"
 
                     float2 clipXY = input.clipPosCopy.xy / max(abs(input.clipPosCopy.w), 0.00001);
                     float3 posWS = ReconstructWorldPosAtPixel(pixelXY, clipXY, sceneRawDepth);
+                    surfacePosWS = posWS;
                     float3 posOS = TransformWorldToObject(posWS);
                     clip(0.5 - abs(posOS));
 
@@ -172,7 +177,12 @@ Shader "Custom/GodRayGroundRing"
                 half whiteness = saturate(1.0h - (maxC - minC) / max(maxC, 0.001h));
                 float alphaScale = _BaseAlpha * lerp(1.0, _WhiteAlphaScale, (float)whiteness);
 
-                float totalAlpha = saturate(ringAlpha + innerDisc) * alphaScale * angleAtten * heightFade;
+                float3 bDir = normalize(_BeamDir.xyz);
+                bool isHoriz = abs(bDir.y) < 0.35;
+                float torchMult = _BeamDims.z > 0.001
+                    ? EvaluateTorchBeamMultiplier(surfacePosWS, _BeamOrigin.xyz, bDir, _BeamDims.x, _BeamDims.y, max(_BeamDims.z, 0.01), isHoriz)
+                    : EvaluateTorchLightMultiplier(surfacePosWS, false);
+                float totalAlpha = saturate(ringAlpha + innerDisc) * alphaScale * angleAtten * heightFade * torchMult;
                 float pulse = 1.0 + sin(_Time.y * _PulseSpeed) * _PulseAmount;
 
                 half3 finalColor = _TintColor.rgb * _Intensity * pulse * totalAlpha;

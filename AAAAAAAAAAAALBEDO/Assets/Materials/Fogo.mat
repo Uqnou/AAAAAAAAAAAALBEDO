@@ -8,7 +8,7 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: Fogo
-  m_Shader: {fileID: 4800000, guid: 30047cff53e2be549942ca7c3c5730d6, type: 3}
+  m_Shader: {fileID: 4800000, guid: dd700dc2a4219ff4187abbd37cb75755, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -25,14 +25,13 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _Cutoff: 0.391
-    - _EmissionStrength: 2.5
-    - _Softness: 0.1
-    - _VoronoiScale: 0.85
+    - _BlobScale: 3.2
+    - _FlickerSpeed: 2.4
+    - _GlossStrength: 0.35
+    - _RimPower: 2.4
+    - _WaveAmplitude: 0.11
     m_Colors:
-    - _EmissionColor: {r: 1, g: 0.2, b: 0.05, a: 1}
-    - _GradientScale: {r: 0.9, g: 2, b: 1.6, a: 1}
-    - _NoiseOffset: {r: 0, g: 0, b: -0.4, a: 0}
-    - _SecondaryColor: {r: 0.014, g: 0.014, b: 0.014, a: 1}
+    - _CoreColor: {r: 0, g: 0, b: 0, a: 1}
+    - _RimColor: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

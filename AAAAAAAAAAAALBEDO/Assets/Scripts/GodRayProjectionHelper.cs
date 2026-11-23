@@ -41,17 +41,25 @@ public static class GodRayProjectionHelper
                 result.centerHitDistance = along;
                 minH = along;
                 maxH = along;
+                if (centerHit.collider != null && centerHit.collider.GetComponentInParent<ChromaticFilterGate>() != null)
+                {
+                    result.minHitDistance = Mathf.Clamp(along, 0.05f, maxHeight);
+                    result.maxHitDistance = result.minHitDistance;
+                    return result;
+                }
             }
         }
 
         float refDist = result.hasHit ? result.centerHitDistance : Mathf.Min(maxHeight, 10f);
         Vector3 right = beamTransform.right, forward = beamTransform.forward;
 
-        SampleConeRing(beamTransform, origin, dir, right, forward, topRadius, bottomRadius, refDist, maxHeight, raycastOffset, layerMask, 0.5f, 4, ref result.hasHit, ref minH, ref maxH);
-        SampleConeRing(beamTransform, origin, dir, right, forward, topRadius, bottomRadius, refDist, maxHeight, raycastOffset, layerMask, 0.95f, 8, ref result.hasHit, ref minH, ref maxH);
+        float gateCapH = float.MaxValue;
+        SampleConeRing(beamTransform, origin, dir, right, forward, topRadius, bottomRadius, refDist, maxHeight, raycastOffset, layerMask, 0.5f, 4, ref result.hasHit, ref minH, ref maxH, ref gateCapH);
+        SampleConeRing(beamTransform, origin, dir, right, forward, topRadius, bottomRadius, refDist, maxHeight, raycastOffset, layerMask, 0.95f, 8, ref result.hasHit, ref minH, ref maxH, ref gateCapH);
 
         if (result.hasHit)
         {
+            if (gateCapH < maxH) maxH = gateCapH;
             result.minHitDistance = Mathf.Clamp(minH, 0.05f, maxHeight);
             result.maxHitDistance = Mathf.Clamp(maxH, result.minHitDistance, maxHeight);
         }
@@ -61,7 +69,7 @@ public static class GodRayProjectionHelper
     private static void SampleConeRing(
         Transform beamTransform, Vector3 origin, Vector3 dir, Vector3 right, Vector3 forward,
         float topR, float botR, float refDist, float maxHeight, float offset, LayerMask mask,
-        float frac, int rayCount, ref bool hasHit, ref float minH, ref float maxH)
+        float frac, int rayCount, ref bool hasHit, ref float minH, ref float maxH, ref float gateCapH)
     {
         float step = (Mathf.PI * 2f) / rayCount;
         for (int i = 0; i < rayCount; i++)
@@ -81,6 +89,8 @@ public static class GodRayProjectionHelper
                     hasHit = true;
                     if (along < minH) minH = along;
                     if (along > maxH) maxH = along;
+                    if (hit.collider != null && hit.collider.GetComponentInParent<ChromaticFilterGate>() != null && along < gateCapH)
+                        gateCapH = along;
                 }
             }
         }

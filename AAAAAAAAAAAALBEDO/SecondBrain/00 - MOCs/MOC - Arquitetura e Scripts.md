@@ -17,16 +17,19 @@ Mapa de componentes de software do projeto Unity **ALBEDO**. Todo o código segu
 
 | Script | Função Principal | Linhas | Nota de Detalhe |
 | :--- | :--- | :--- | :--- |
-| `PlayerController.cs` | Movimentação WASD isométrica, pegar/soltar/acender [E] e rotacionar [Q]/[R] | 215 | [[Script - PlayerController]] |
-| `PrismaController.cs` | Dispersão/projeção de God Ray volumétrico, encadeamento e mistura RGB aditiva | 298 | [[Script - PrismaController]] |
-| `SombraController.cs` | Sombra física (Barreira por Cor RGB ou Passarela Caminhável no escuro) | 217 | [[Script - SombraController]] |
+| `PlayerController.cs` | Movimentação WASD isométrica, pegar/soltar/encaixar/acender [E] e rotacionar [Q]/[R] | 273 | [[Script - PlayerController]] |
+| `PrismaController.cs` | Dispersão/projeção de God Ray volumétrico, encadeamento, vitrais e mistura RGB aditiva | 286 | [[Script - PrismaController]] |
+| `ChromaticFilterGate.cs` | Vitral subtrativo RGB (`SingleFilter`) e divisor de feixe (`DualSplitter`) | 222 | [[Script - ChromaticFilterGate]] |
+| `PrismSnapSlot.cs` | Pontos de encaixe na mesa com travamento de posição e direção para prismas | 191 | [[Script - ChromaticFilterGate]] |
+| `AlbedoWallLightGlobals.cs` | Sincronização GPU de feixes e detecção em cone para prismas e vitrais | 244 | [[Script - PrismaController]] |
+| `SombraController.cs` | Sombra física (Barreira por Cor RGB ou Passarela Caminhável no escuro) | 340 | [[Script - SombraController]] |
 | `AlbedoColorUtility.cs` | Presets de cor, mistura aditiva RGB e correspondência de canais | 211 | [[Script - PrismaController]] |
-| `GodRayBeam.cs` | Feixe volumétrico vertical/angular com partículas de poeira e raycast | 294 | [[Script - GodRayBeam]] |
+| `GodRayBeam.cs` | Feixe volumétrico vertical/angular com partículas de poeira e raycast | 292 | [[Script - GodRayBeam]] |
 | `GodRayTriggerZone.cs` | Sub-componente de gatilho físico para o GodRayBeam | 39 | [[Script - GodRayBeam]] |
 | `LightSource.cs` | Ponto/volume de luz emissor com suporte a supressão por Fogo Negro | 192 | [[Script - LightSource]] |
-| `TorchController.cs` | Tocha de Fogo Negro que suprime LightSources e GodRays no raio | 153 | [[Script - LightSource]] |
-| `BlackFireBrazier.cs` | Braseiro que acende permanentemente a Tocha de Fogo Negro | 88 | [[Script - LightSource]] |
-| `PickableObject.cs` | Objeto manipulável [E] e rotacionável [Q]/[R] preservando inclinação FBX | 167 | [[Script - PickableObject e Prompt]] |
+| `TorchController.cs` | Tocha de Fogo Negro que suprime LightSources e GodRays no raio | 161 | [[Script - LightSource]] |
+| `BlackFireBrazier.cs` | Braseiro que acende permanentemente a Tocha de Fogo Negro | 95 | [[Script - LightSource]] |
+| `PickableObject.cs` | Objeto manipulável [E], encaixável em `PrismSnapSlot` e rotacionável [Q]/[R] | 263 | [[Script - PickableObject e Prompt]] |
 | `LevelExitButton.cs` | Plataforma/botão final de conclusão do nível | 79 | [[Script - PlayerController]] |
 | `IsometricCamera.cs` | Câmera isométrica ortográfica com interpolação dinâmica | 137 | [[Script - IsometricCamera]] |
 | `CameraTriggerZone.cs`| Volume Trigger para alterar parâmetros da câmera por zona | 125 | [[Script - CameraTriggerZone]] |

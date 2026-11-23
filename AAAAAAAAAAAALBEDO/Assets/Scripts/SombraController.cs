@@ -14,7 +14,7 @@ public class SombraController : MonoBehaviour
     [SerializeField] private ShadowMode mode = ShadowMode.Barrier;
     [SerializeField] private AlbedoColorPreset requiredColorPreset = AlbedoColorPreset.White;
     [SerializeField] private Color requiredColor = Color.white;
-    [Tooltip("Se ativo, exige exatamente a cor configurada (luz branca não abre sombra amarela).")]
+    [Tooltip("Se ativo, exige a cor configurada da sombra (ou Luz Branca, que é a junção de todas as cores).")]
     [SerializeField] private bool requireExactColor = false;
     [SerializeField] private float colorTolerance = AlbedoColorUtility.DefaultColorTolerance;
 
@@ -32,11 +32,8 @@ public class SombraController : MonoBehaviour
     [SerializeField] private Color anyColorVisualTint = new Color(0f, 0f, 0f, 0f);
 
     [Header("Tamanho do Buraco da Luz")]
-    [Tooltip("Multiplicador do tamanho do buraco aberto pela luz nesta sombra (1 = padrão).")]
     [Range(0.1f, 4.0f)] [SerializeField] private float holeSizeMultiplier = 1.0f;
-    [Tooltip("Ajuste extra em metros somado/subtraído ao raio do buraco.")]
     [Range(-2.0f, 5.0f)] [SerializeField] private float holeRadiusOffset = 0.0f;
-    [Tooltip("Multiplicador da suavidade da borda do buraco.")]
     [Range(0.2f, 2.0f)] [SerializeField] private float holeSoftnessMultiplier = 1.0f;
 
     private static readonly int TintColorId = Shader.PropertyToID("_TintColor"), RequiredColorId = Shader.PropertyToID("_RequiredColor");
@@ -68,94 +65,54 @@ public class SombraController : MonoBehaviour
     public bool IsBridgeWalkable => mode == ShadowMode.WalkableBridge && !isHidden;
 
     /// <summary>
-    /// Verifica se esta barreira de sombra está aberta e esculpida pela luz no ponto informado,
-    /// impedindo que o jogador pegue ou interaja com itens através de sombras fechadas.
+    /// Verifica se esta barreira de sombra está aberta e esculpida pela luz no ponto informado.
     /// </summary>
     public bool IsPassableAtPoint(Vector3 worldPoint, float marginRadius = 0.35f)
     {
-        if (mode == ShadowMode.WalkableBridge) return false;
-        if (!ShouldBarrierOpen()) return false;
-
+        if (mode == ShadowMode.WalkableBridge || activeIlluminatingPrisms.Count == 0) return false;
         Color reqColor = EffectiveRequiredColor;
-        bool enforceExact = ShouldEnforceExactColor(reqColor);
-        bool ignorePrism = ShouldIgnorePrismLight();
-        Material sharedMat = (renderers != null && renderers.Length > 0 && renderers[0] != null) ? renderers[0].sharedMaterial : null;
-        float effScale = holeSizeMultiplier * (sharedMat != null && sharedMat.HasProperty(MatCarveScaleId) ? sharedMat.GetFloat(MatCarveScaleId) : 1f);
-        float effOffset = holeRadiusOffset + (sharedMat != null && sharedMat.HasProperty(MatCarveOffsetId) ? sharedMat.GetFloat(MatCarveOffsetId) : 0f);
-
-        if (AlbedoWallLightGlobals.EvaluateCarveAtPoint(worldPoint, marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism))
-            return true;
-
+        bool enforceExact = ShouldEnforceExactColor(reqColor), ignorePrism = ShouldIgnorePrismLight();
+        GetEffectiveCarveOffsets(out float effScale, out float effOffset);
+        if (AlbedoWallLightGlobals.EvaluateCarveAtPoint(worldPoint, marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism)) return true;
         Bounds b = ComputeWorldBounds();
         Vector3 lowProbe = new Vector3(worldPoint.x, Mathf.Lerp(b.min.y, b.max.y, 0.35f), worldPoint.z);
-        if (AlbedoWallLightGlobals.EvaluateCarveAtPoint(lowProbe, marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism))
-            return true;
+        if (AlbedoWallLightGlobals.EvaluateCarveAtPoint(lowProbe, marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism)) return true;
+        return AlbedoWallLightGlobals.EvaluateCarveAtPoint(new Vector3(worldPoint.x, 1.95f, worldPoint.z), marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism);
+    }
 
-        Vector3 floorPrismProbe = new Vector3(worldPoint.x, 1.95f, worldPoint.z);
-        return AlbedoWallLightGlobals.EvaluateCarveAtPoint(floorPrismProbe, marginRadius, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism);
+    private void GetEffectiveCarveOffsets(out float effScale, out float effOffset)
+    {
+        Material sharedMat = (renderers != null && renderers.Length > 0 && renderers[0] != null) ? renderers[0].sharedMaterial : null;
+        effScale = holeSizeMultiplier * (sharedMat != null && sharedMat.HasProperty(MatCarveScaleId) ? sharedMat.GetFloat(MatCarveScaleId) : 1f);
+        effOffset = holeRadiusOffset + (sharedMat != null && sharedMat.HasProperty(MatCarveOffsetId) ? sharedMat.GetFloat(MatCarveOffsetId) : 0f);
     }
 
     private void Awake() { SyncPresetColor(); if (Application.isPlaying) CacheComponents(); }
     private void OnEnable() => SyncPresetColor();
     private void Start() { if (Application.isPlaying && mode == ShadowMode.WalkableBridge) ReevaluateState(true); }
     private void OnValidate() { SyncPresetColor(); if (Application.isPlaying) CacheComponents(); }
-
-    private void SyncPresetColor()
-    {
-        if (requiredColorPreset != AlbedoColorPreset.Custom) requiredColor = AlbedoColorUtility.PresetToColor(requiredColorPreset, requiredColor);
-        ApplyVisualColorIndicator();
-    }
-
-    public void ConfigureRequiredColor(AlbedoColorPreset preset, bool exactColor = true)
-    {
-        requiredColorPreset = preset; requireExactColor = exactColor; SyncPresetColor();
-    }
-
-    private bool IsWhiteRequiredColor(Color effective) =>
-        requiredColorPreset == AlbedoColorPreset.White || AlbedoColorUtility.ColorsMatch(effective, Color.white, true, 0.05f);
-
-    private bool ShouldEnforceExactColor(Color effective) =>
-        mode == ShadowMode.Barrier && (requireExactColor || !IsWhiteRequiredColor(effective));
-
+    private void SyncPresetColor() { if (requiredColorPreset != AlbedoColorPreset.Custom) requiredColor = AlbedoColorUtility.PresetToColor(requiredColorPreset, requiredColor); ApplyVisualColorIndicator(); }
+    public void ConfigureRequiredColor(AlbedoColorPreset preset, bool exactColor = true) { requiredColorPreset = preset; requireExactColor = exactColor; SyncPresetColor(); }
+    private bool IsWhiteRequiredColor(Color effective) => requiredColorPreset == AlbedoColorPreset.White || AlbedoColorUtility.ColorsMatch(effective, Color.white, true, 0.05f);
+    private bool ShouldEnforceExactColor(Color effective) => mode == ShadowMode.Barrier && (requireExactColor || !IsWhiteRequiredColor(effective));
     private bool ShouldIgnorePrismLight() => mode == ShadowMode.WalkableBridge && !allowPrismToOpenBridge;
 
     private void ApplyVisualColorIndicator()
     {
         if (!syncVisualColorIndicator) return;
-
         Renderer[] targetRenderers = GetComponentsInChildren<Renderer>(true);
         if (targetRenderers == null || targetRenderers.Length == 0) return;
-
         Color effective = EffectiveRequiredColor;
-        bool isWhiteColor = IsWhiteRequiredColor(effective);
-        bool isWhiteOnly = mode == ShadowMode.Barrier && isWhiteColor && requireExactColor;
-        bool isColoredShadow = mode == ShadowMode.Barrier && !isWhiteColor;
-        bool enforceExact = ShouldEnforceExactColor(effective);
+        bool isWhiteColor = IsWhiteRequiredColor(effective), isWhiteOnly = mode == ShadowMode.Barrier && isWhiteColor && requireExactColor;
+        bool isColoredShadow = mode == ShadowMode.Barrier && !isWhiteColor, enforceExact = ShouldEnforceExactColor(effective);
 
-        Color shaderTint;
-        Color fallbackColor;
-        if (isColoredShadow)
-        {
-            shaderTint = new Color(effective.r, effective.g, effective.b, 1f);
-            fallbackColor = effective;
-        }
-        else if (isWhiteOnly)
-        {
-            Color whiteTint = whiteOnlyVisualColor.a > 0.01f ? whiteOnlyVisualColor : Color.white;
-            shaderTint = new Color(whiteTint.r, whiteTint.g, whiteTint.b, 1f);
-            fallbackColor = new Color(0.88f, 0.90f, 0.95f, 1f);
-        }
-        else
-        {
-            shaderTint = anyColorVisualTint;
-            fallbackColor = mode == ShadowMode.WalkableBridge
-                ? new Color(0.08f, 0.08f, 0.08f, 1f)
-                : new Color(0.12f, 0.12f, 0.12f, 1f);
-        }
+        Color shaderTint, fallbackColor;
+        if (isColoredShadow) { shaderTint = new Color(effective.r, effective.g, effective.b, 1f); fallbackColor = effective; }
+        else if (isWhiteOnly) { Color wt = whiteOnlyVisualColor.a > 0.01f ? whiteOnlyVisualColor : Color.white; shaderTint = new Color(wt.r, wt.g, wt.b, 1f); fallbackColor = new Color(0.88f, 0.90f, 0.95f, 1f); }
+        else { shaderTint = anyColorVisualTint; fallbackColor = mode == ShadowMode.WalkableBridge ? new Color(0.08f, 0.08f, 0.08f, 1f) : new Color(0.12f, 0.12f, 0.12f, 1f); }
 
         Color reqProp = new Color(effective.r, effective.g, effective.b, enforceExact ? 1f : 0f);
         float instanceFlag = ShouldIgnorePrismLight() ? 2f : 1f;
-
         var mpb = new MaterialPropertyBlock();
         foreach (Renderer r in targetRenderers)
         {
@@ -165,11 +122,8 @@ public class SombraController : MonoBehaviour
                 Material mat = r.sharedMaterials[i];
                 if (mat != null && mat.HasProperty(TintColorId))
                 {
-                    r.GetPropertyBlock(mpb, i);
-                    mpb.SetColor(TintColorId, shaderTint);
-                    mpb.SetColor(RequiredColorId, reqProp);
-                    mpb.SetFloat(ColorToleranceId, colorTolerance);
-                    mpb.SetVector(InstanceCarveParamsId, new Vector4(holeSizeMultiplier, holeRadiusOffset, holeSoftnessMultiplier, instanceFlag));
+                    r.GetPropertyBlock(mpb, i); mpb.SetColor(TintColorId, shaderTint); mpb.SetColor(RequiredColorId, reqProp);
+                    mpb.SetFloat(ColorToleranceId, colorTolerance); mpb.SetVector(InstanceCarveParamsId, new Vector4(holeSizeMultiplier, holeRadiusOffset, holeSoftnessMultiplier, instanceFlag));
                     r.SetPropertyBlock(mpb, i);
                 }
                 else AlbedoColorUtility.ApplyMaterialIndicator(r, i, fallbackColor, false);
@@ -183,14 +137,11 @@ public class SombraController : MonoBehaviour
     {
         renderers = GetComponentsInChildren<Renderer>(true);
         colliders = GetComponentsInChildren<Collider>(true);
-        originalTriggerStates.Clear();
-        originalEnabledStates.Clear();
-
+        originalTriggerStates.Clear(); originalEnabledStates.Clear();
         foreach (var col in colliders)
         {
             if (col == null) continue;
-            originalTriggerStates[col] = col.isTrigger;
-            originalEnabledStates[col] = col.enabled;
+            originalTriggerStates[col] = col.isTrigger; originalEnabledStates[col] = col.enabled;
             if (col is MeshCollider mc && !mc.convex) mc.convex = true;
         }
     }
@@ -206,11 +157,9 @@ public class SombraController : MonoBehaviour
     {
         dynamicActors.Clear();
         PlayerController player = Object.FindFirstObjectByType<PlayerController>();
-        if (player != null)
-            foreach (var c in player.GetComponentsInChildren<Collider>(true)) if (c != null) dynamicActors.Add(c);
+        if (player != null) foreach (var c in player.GetComponentsInChildren<Collider>(true)) if (c != null) dynamicActors.Add(c);
         foreach (PickableObject item in Object.FindObjectsByType<PickableObject>(FindObjectsSortMode.None))
-            if (item != null)
-                foreach (var c in item.GetComponentsInChildren<Collider>(true)) if (c != null) dynamicActors.Add(c);
+            if (item != null) foreach (var c in item.GetComponentsInChildren<Collider>(true)) if (c != null) dynamicActors.Add(c);
     }
 
     private void UpdatePartialCollisions()
@@ -219,11 +168,9 @@ public class SombraController : MonoBehaviour
         if (colliders == null || colliders.Length == 0) return;
         if (Time.time >= nextActorRefreshTime) { RefreshDynamicActors(); nextActorRefreshTime = Time.time + 0.5f; }
         Color reqColor = EffectiveRequiredColor;
-        bool enforceExact = ShouldEnforceExactColor(reqColor);
-        bool ignorePrism = ShouldIgnorePrismLight();
-        Material sharedMat = (renderers != null && renderers.Length > 0 && renderers[0] != null) ? renderers[0].sharedMaterial : null;
-        float effScale = holeSizeMultiplier * (sharedMat != null && sharedMat.HasProperty(MatCarveScaleId) ? sharedMat.GetFloat(MatCarveScaleId) : 1f);
-        float effOffset = holeRadiusOffset + (sharedMat != null && sharedMat.HasProperty(MatCarveOffsetId) ? sharedMat.GetFloat(MatCarveOffsetId) : 0f);
+        bool enforceExact = ShouldEnforceExactColor(reqColor), ignorePrism = ShouldIgnorePrismLight();
+        GetEffectiveCarveOffsets(out float effScale, out float effOffset);
+
         for (int s = 0; s < colliders.Length; s++)
         {
             Collider shadowCol = colliders[s];
@@ -256,13 +203,7 @@ public class SombraController : MonoBehaviour
         }
     }
 
-    public void SetIlluminated(bool illuminated, PrismaController source)
-    {
-        if (source == null) return;
-        if (illuminated) activeIlluminatingPrisms.Add(source);
-        else activeIlluminatingPrisms.Remove(source);
-        ReevaluateState(false);
-    }
+    public void SetIlluminated(bool illuminated, PrismaController source) { if (source == null) return; if (illuminated) activeIlluminatingPrisms.Add(source); else activeIlluminatingPrisms.Remove(source); ReevaluateState(false); }
 
     public void ReevaluateState(bool forceApply)
     {
@@ -278,12 +219,10 @@ public class SombraController : MonoBehaviour
         foreach (var prism in activeIlluminatingPrisms) if (prism != null && prism.IsEmitting) prismColorBuffer.Add(prism.ActiveEmittedColor);
         if (prismColorBuffer.Count == 0) return false;
         Color effective = EffectiveRequiredColor;
-        bool isWhiteColor = IsWhiteRequiredColor(effective);
-        bool enforceExact = ShouldEnforceExactColor(effective);
-        if (!enforceExact) return true;
+        if (!ShouldEnforceExactColor(effective)) return true;
         Color combined = AlbedoColorUtility.CombineAdditive(prismColorBuffer);
-        if (isWhiteColor && AlbedoColorUtility.IsNeutralLight(combined)) return true;
-        return AlbedoColorUtility.ColorsMatch(combined, effective, enforceExact, colorTolerance);
+        if (AlbedoColorUtility.IsNeutralLight(combined)) return true;
+        return AlbedoColorUtility.ColorsMatch(combined, effective, true, colorTolerance);
     }
 
     private bool IsBridgeExposedToActiveLight()
@@ -295,8 +234,7 @@ public class SombraController : MonoBehaviour
         Vector3 halfExtents = new Vector3(Mathf.Max(0.4f, b.extents.x), Mathf.Max(lightOverlapHeight * 0.5f, b.extents.y), Mathf.Max(0.4f, b.extents.z));
         foreach (var hit in Physics.OverlapBox(center, halfExtents, Quaternion.identity, ~0, QueryTriggerInteraction.Collide))
         {
-            if (hit == null || hit.transform.IsChildOf(transform)) continue;
-            if (!allowPrismToOpenBridge && hit.GetComponentInParent<PrismaController>() != null) continue;
+            if (hit == null || hit.transform.IsChildOf(transform) || (!allowPrismToOpenBridge && hit.GetComponentInParent<PrismaController>() != null)) continue;
             LightSource ls = hit.GetComponent<LightSource>() ?? hit.GetComponentInParent<LightSource>();
             if (ls != null && ls.IsActive && (allowPrismToOpenBridge || ls.GetComponentInParent<PrismaController>() == null)) return true;
         }
@@ -317,24 +255,15 @@ public class SombraController : MonoBehaviour
         if (renderers == null) renderers = GetComponentsInChildren<Renderer>(true);
         foreach (var r in renderers) if (r != null) r.enabled = true;
         if (colliders == null) colliders = GetComponentsInChildren<Collider>(true);
-        foreach (var c in colliders)
-        {
-            if (c == null) continue;
-            c.isTrigger = originalTriggerStates.TryGetValue(c, out bool origTrig) && origTrig;
-            c.enabled = !originalEnabledStates.TryGetValue(c, out bool origEn) || origEn;
-        }
-        if (hide) onShadowHidden?.Invoke();
-        else onShadowRevealed?.Invoke();
+        foreach (var c in colliders) { if (c == null) continue; c.isTrigger = originalTriggerStates.TryGetValue(c, out bool origTrig) && origTrig; c.enabled = !originalEnabledStates.TryGetValue(c, out bool origEn) || origEn; }
+        if (hide) onShadowHidden?.Invoke(); else onShadowRevealed?.Invoke();
     }
 
     private void OnDisable()
     {
         if (!Application.isPlaying) return;
         activeIlluminatingPrisms.Clear();
-        if (colliders != null)
-            for (int s = 0; s < colliders.Length; s++)
-                for (int a = 0; a < dynamicActors.Count; a++)
-                    if (colliders[s] != null && dynamicActors[a] != null) Physics.IgnoreCollision(dynamicActors[a], colliders[s], false);
+        if (colliders != null) for (int s = 0; s < colliders.Length; s++) for (int a = 0; a < dynamicActors.Count; a++) if (colliders[s] != null && dynamicActors[a] != null) Physics.IgnoreCollision(dynamicActors[a], colliders[s], false);
         ApplyState(false);
     }
 }

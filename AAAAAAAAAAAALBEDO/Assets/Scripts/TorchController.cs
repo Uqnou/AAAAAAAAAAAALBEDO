@@ -7,7 +7,7 @@ using UnityEngine.Events;
 /// Uma vez acesa no Braseiro de Fogo Negro, permanece acesa e suprime qualquer LightSource
 /// (incluindo luzes do teto e GodRays) dentro do seu raio de alcance.
 /// </summary>
-[SelectionBase, DisallowMultipleComponent]
+[ExecuteAlways, SelectionBase, DisallowMultipleComponent]
 public class TorchController : MonoBehaviour
 {
     [Header("Fogo Negro")]
@@ -20,8 +20,14 @@ public class TorchController : MonoBehaviour
     [Tooltip("Material compartilhado do Fogo Negro (Assets/Materials/BlackFire.mat).")]
     [SerializeField] private Material blackFireMaterial;
 
-    [Tooltip("Raio em que a tocha apaga/suprime fontes de luz (LightSource).")]
-    [SerializeField] private float suppressionRadius = 5.5f;
+    [Tooltip("Raio circular do buraco de sombra que apaga luzes e GodRays ao redor da tocha.")]
+    [SerializeField] private float suppressionRadius = 3.2f;
+
+    [Tooltip("Suavidade da borda circular do buraco de sombra.")]
+    [Range(0.05f, 0.95f)] [SerializeField] private float holeEdgeSoftness = 0.42f;
+
+    [Tooltip("Se desativado (padrão), a tocha cria um buraco circular de sombra onde passa na luz/GodRay em vez de apagar a fonte de luz inteira.")]
+    [SerializeField] private bool suppressEntireLightSource = false;
 
     [Header("Eventos")]
     public UnityEvent onIgnited = new UnityEvent();
@@ -29,25 +35,43 @@ public class TorchController : MonoBehaviour
 
     private readonly HashSet<LightSource> currentlySuppressedLights = new HashSet<LightSource>();
     private readonly List<LightSource> toRelease = new List<LightSource>();
+    private PickableObject pickable;
 
     public bool IsLit => isLit;
+    public bool IsHeldByPlayer => pickable != null && pickable.IsPickedUp;
     public float SuppressionRadius { get => suppressionRadius; set => suppressionRadius = Mathf.Max(0.1f, value); }
+    public float HoleEdgeSoftness => holeEdgeSoftness;
+    private bool IsSelfFlameObject => gameObject.name.IndexOf("Fogo", System.StringComparison.OrdinalIgnoreCase) >= 0;
+
+    private void OnEnable()
+    {
+        if (pickable == null) pickable = GetComponent<PickableObject>();
+        AlbedoWallLightGlobals.RegisterTorch(this);
+        if (IsSelfFlameObject) isLit = true;
+    }
 
     private void Awake()
     {
+        pickable = GetComponent<PickableObject>();
+        if (IsSelfFlameObject) isLit = true;
         EnsureFlameVisual();
         UpdateFlameVisual();
+    }
+
+    private void OnValidate()
+    {
+        if (IsSelfFlameObject) isLit = true;
     }
 
     private void Start()
     {
         UpdateFlameVisual();
-        if (isLit) UpdateLightSuppression();
+        if (Application.isPlaying && isLit) UpdateLightSuppression();
     }
 
     private void Update()
     {
-        if (isLit) UpdateLightSuppression();
+        if (Application.isPlaying && isLit) UpdateLightSuppression();
     }
 
     public void Ignite()
@@ -77,7 +101,7 @@ public class TorchController : MonoBehaviour
 
     private void EnsureFlameVisual()
     {
-        if (blackFireVisual != null) return;
+        if (IsSelfFlameObject || blackFireVisual != null) return;
         Transform existing = transform.Find("BlackFireFlame");
         if (existing != null) { blackFireVisual = existing.gameObject; return; }
         if (!Application.isPlaying) return;
@@ -108,6 +132,12 @@ public class TorchController : MonoBehaviour
 
     private void UpdateLightSuppression()
     {
+        if (!suppressEntireLightSource)
+        {
+            if (currentlySuppressedLights.Count > 0) ReleaseAllSuppressedLights();
+            return;
+        }
+
         HashSet<LightSource> newlySuppressed = new HashSet<LightSource>();
         Collider[] hits = Physics.OverlapSphere(transform.position, suppressionRadius, ~0, QueryTriggerInteraction.Collide);
 
@@ -150,6 +180,7 @@ public class TorchController : MonoBehaviour
 
     private void OnDisable()
     {
+        AlbedoWallLightGlobals.UnregisterTorch(this);
         ReleaseAllSuppressedLights();
     }
 

@@ -9,6 +9,9 @@ Shader "Custom/GodRayVolumetric"
         _DepthFadeDistance ("Depth Fade Distance", Range(0.01, 3.0)) = 0.6
         _BaseAlpha ("Base Alpha", Range(0.0, 1.0)) = 0.32
         _WhiteAlphaScale ("White Light Transparency Scale", Range(0.1, 1.0)) = 0.65
+        [HideInInspector] _BeamOrigin ("Beam Origin", Vector) = (0.0, 0.0, 0.0, 0.0)
+        [HideInInspector] _BeamDir ("Beam Direction", Vector) = (0.0, -1.0, 0.0, 0.0)
+        [HideInInspector] _BeamDims ("Beam Dims", Vector) = (0.35, 2.2, 0.0, 0.0)
     }
 
     SubShader
@@ -38,6 +41,7 @@ Shader "Custom/GodRayVolumetric"
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+            #include "Assets/Shaders/AlbedoTorchCarve.hlsl"
 
             struct Attributes
             {
@@ -64,6 +68,9 @@ Shader "Custom/GodRayVolumetric"
                 float _DepthFadeDistance;
                 float _BaseAlpha;
                 float _WhiteAlphaScale;
+                float4 _BeamOrigin;
+                float4 _BeamDir;
+                float4 _BeamDims;
             CBUFFER_END
 
             Varyings vert(Attributes input)
@@ -120,7 +127,14 @@ Shader "Custom/GodRayVolumetric"
                 half whiteness = saturate(1.0h - (maxC - minC) / max(maxC, 0.001h));
                 float alphaScale = lerp(1.0, _WhiteAlphaScale, (float)whiteness);
 
-                float combinedAlpha = verticalGrad * rim * depthFade * _BaseAlpha * alphaScale;
+                float3 bOrigin = _BeamDims.z > 0.001 ? _BeamOrigin.xyz : TransformObjectToWorld(float3(0.0, 0.0, 0.0));
+                float3 bDir = _BeamDims.z > 0.001 ? normalize(_BeamDir.xyz) : normalize(TransformObjectToWorldDir(float3(0.0, -1.0, 0.0)));
+                float topR = _BeamDims.z > 0.001 ? _BeamDims.x : 0.35;
+                float botR = _BeamDims.z > 0.001 ? _BeamDims.y : 2.14;
+                float coneH = _BeamDims.z > 0.001 ? _BeamDims.z : 20.0;
+                bool isHoriz = abs(bDir.y) < 0.35;
+                float torchMult = EvaluateTorchBeamMultiplier(input.positionWS, bOrigin, bDir, topR, botR, coneH, isHoriz);
+                float combinedAlpha = verticalGrad * rim * depthFade * _BaseAlpha * alphaScale * torchMult;
                 half3 finalColor = _TintColor.rgb * _Intensity * combinedAlpha;
 
                 return half4(finalColor, combinedAlpha);

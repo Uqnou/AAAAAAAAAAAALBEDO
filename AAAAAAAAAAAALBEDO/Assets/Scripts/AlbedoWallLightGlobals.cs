@@ -14,24 +14,28 @@ using UnityEditor;
 public static class AlbedoWallLightGlobals
 {
     public const int MaxBeams = 24;
+    public const int MaxTorches = 16;
 
     private static readonly HashSet<PrismaController> ActivePrisms = new HashSet<PrismaController>();
     private static readonly HashSet<GodRayBeam> ActiveGodRays = new HashSet<GodRayBeam>();
+    private static readonly HashSet<ChromaticFilterGate> ActiveGates = new HashSet<ChromaticFilterGate>();
+    private static readonly HashSet<TorchController> ActiveTorches = new HashSet<TorchController>();
 
-    private static readonly Vector4[] BeamStarts = new Vector4[MaxBeams];
-    private static readonly Vector4[] BeamDirs = new Vector4[MaxBeams];
-    private static readonly Vector4[] BeamColors = new Vector4[MaxBeams];
-    private static readonly Vector4[] BeamParams = new Vector4[MaxBeams];
+    private static readonly Vector4[] BeamStarts = new Vector4[MaxBeams], BeamDirs = new Vector4[MaxBeams];
+    private static readonly Vector4[] BeamColors = new Vector4[MaxBeams], BeamParams = new Vector4[MaxBeams];
+    private static readonly Vector4[] TorchSpheres = new Vector4[MaxTorches], TorchParams = new Vector4[MaxTorches];
 
     private static readonly int BeamCountId = Shader.PropertyToID("_AlbedoBeamCount");
     private static readonly int BeamStartsId = Shader.PropertyToID("_AlbedoBeamStarts");
     private static readonly int BeamDirsId = Shader.PropertyToID("_AlbedoBeamDirs");
     private static readonly int BeamColorsId = Shader.PropertyToID("_AlbedoBeamColors");
     private static readonly int BeamParamsId = Shader.PropertyToID("_AlbedoBeamParams");
+    private static readonly int TorchCountId = Shader.PropertyToID("_AlbedoTorchCount");
+    private static readonly int TorchSpheresId = Shader.PropertyToID("_AlbedoTorchSpheres");
+    private static readonly int TorchParamsId = Shader.PropertyToID("_AlbedoTorchParams");
 
     private static bool arraysInitialized = false;
-    private static int activeBeamCount = 0;
-    private static int lastPushFrame = -1;
+    private static int activeBeamCount = 0, activeTorchCount = 0, lastPushFrame = -1;
 
 #if UNITY_EDITOR
     static AlbedoWallLightGlobals()
@@ -59,11 +63,21 @@ public static class AlbedoWallLightGlobals
     public static IReadOnlyCollection<PrismaController> Prisms => ActivePrisms;
     public static void Register(PrismaController p) { if (p != null) ActivePrisms.Add(p); }
     public static void Unregister(PrismaController p) { if (p != null) ActivePrisms.Remove(p); }
+    public static void RegisterGate(ChromaticFilterGate g) { if (g != null) ActiveGates.Add(g); }
+    public static void UnregisterGate(ChromaticFilterGate g) { if (g != null) ActiveGates.Remove(g); }
+    public static void RegisterTorch(TorchController t) { if (t != null) ActiveTorches.Add(t); }
+    public static void UnregisterTorch(TorchController t) { if (t != null) ActiveTorches.Remove(t); }
 
-    public static bool IsPassThroughCollider(Collider col, Transform self, Transform ignoreTarget = null) =>
-        col == null || col.transform.IsChildOf(self) || (ignoreTarget != null && col.transform.IsChildOf(ignoreTarget)) ||
-        col.GetComponentInParent<SombraController>() != null || col.gameObject.name.StartsWith("Sombra") ||
-        col.GetComponentInParent<PrismaController>() != null || col.GetComponentInParent<PlayerController>() != null;
+    public static bool IsPassThroughCollider(Collider col, Transform self, Transform ignoreTarget = null)
+    {
+        if (col == null || col.transform.IsChildOf(self) || self.IsChildOf(col.transform)) return true;
+        if (ignoreTarget != null && col.transform.IsChildOf(ignoreTarget)) return true;
+        if (col.GetComponentInParent<SombraController>() != null || col.gameObject.name.StartsWith("Sombra")) return true;
+        if (col.GetComponentInParent<PrismaController>() != null || col.GetComponentInParent<PlayerController>() != null) return true;
+        ChromaticFilterGate gate = col.GetComponentInParent<ChromaticFilterGate>();
+        PrismaController selfPrism = self != null ? self.GetComponent<PrismaController>() : null;
+        return gate != null && selfPrism != null && gate.OwnsEmitter(selfPrism);
+    }
 
     public static bool IsBlockedByWall(Vector3 origin, Vector3 target, Transform self, Transform targetTransform, LayerMask obstacleLayers)
     {
@@ -81,14 +95,33 @@ public static class AlbedoWallLightGlobals
         foreach (var p in ActivePrisms)
         {
             if (p == null || p == source || !p.isActiveAndEnabled || newlyHitPrisms.Contains(p) || source.HasUpstreamSource(p, 8)) continue;
-            Vector3 toP = p.GetBeamWorldOrigin() - origin; float tProj = Vector3.Dot(toP, dir);
+            Vector3 targetPos = p.GetBeamWorldOrigin();
+            Vector3 toP = targetPos - origin; float tProj = Vector3.Dot(toP, dir);
             if (tProj <= 0.05f || tProj > hitDist + 0.5f) continue;
             float coneR = Mathf.Lerp(topR, botR, Mathf.Clamp01(tProj / Mathf.Max(0.01f, maxDist)));
-            if ((toP - dir * tProj).magnitude <= coneR + 0.45f && !IsBlockedByWall(origin, p.GetBeamWorldOrigin(), source.transform, p.transform, obstacleLayers))
-            {
-                newlyHitPrisms.Add(p);
-                p.ReceivePrismBeam(true, source);
-            }
+            if ((toP - dir * tProj).magnitude <= coneR + 0.45f &&
+                EvaluateTorchBeamMultiplier(targetPos, origin, dir, topR, botR, maxDist, true) >= 0.25f &&
+                !IsBlockedByWall(origin, targetPos, source.transform, p.transform, obstacleLayers))
+            { newlyHitPrisms.Add(p); p.ReceivePrismBeam(true, source); }
+        }
+    }
+
+    public static void CollectGatesInCone(
+        PrismaController source, Vector3 origin, Vector3 dir, float hitDist, float maxDist,
+        float topR, float botR, LayerMask obstacleLayers, HashSet<ChromaticFilterGate> newlyHitGates)
+    {
+        foreach (var g in ActiveGates)
+        {
+            if (g == null || !g.isActiveAndEnabled || g.OwnsEmitter(source) || newlyHitGates.Contains(g)) continue;
+            Collider col = g.GetComponent<Collider>() ?? g.GetComponentInChildren<Collider>();
+            Vector3 targetPos = col != null ? col.ClosestPoint(origin + dir * Mathf.Min(hitDist, Vector3.Distance(origin, g.transform.position))) : g.transform.position;
+            Vector3 toG = targetPos - origin; float tProj = Vector3.Dot(toG, dir);
+            if (tProj <= 0.05f || tProj > hitDist + 0.6f) continue;
+            float coneR = Mathf.Lerp(topR, botR, Mathf.Clamp01(tProj / Mathf.Max(0.01f, maxDist)));
+            if ((toG - dir * tProj).magnitude <= coneR + 0.45f &&
+                EvaluateTorchBeamMultiplier(targetPos, origin, dir, topR, botR, maxDist, true) >= 0.25f &&
+                !IsBlockedByWall(origin, targetPos, source.transform, g.transform, obstacleLayers))
+            { newlyHitGates.Add(g); g.ReceivePrismBeam(true, source, dir); }
         }
     }
     public static void Register(GodRayBeam g) { if (g != null) ActiveGodRays.Add(g); }
@@ -98,10 +131,9 @@ public static class AlbedoWallLightGlobals
     {
         if (!arraysInitialized)
         {
-            Shader.SetGlobalVectorArray(BeamStartsId, BeamStarts);
-            Shader.SetGlobalVectorArray(BeamDirsId, BeamDirs);
-            Shader.SetGlobalVectorArray(BeamColorsId, BeamColors);
-            Shader.SetGlobalVectorArray(BeamParamsId, BeamParams);
+            Shader.SetGlobalVectorArray(BeamStartsId, BeamStarts); Shader.SetGlobalVectorArray(BeamDirsId, BeamDirs);
+            Shader.SetGlobalVectorArray(BeamColorsId, BeamColors); Shader.SetGlobalVectorArray(BeamParamsId, BeamParams);
+            Shader.SetGlobalVectorArray(TorchSpheresId, TorchSpheres); Shader.SetGlobalVectorArray(TorchParamsId, TorchParams);
             arraysInitialized = true;
         }
 
@@ -152,16 +184,72 @@ public static class AlbedoWallLightGlobals
         }
 
         activeBeamCount = count;
+        int tCount = 0;
+        foreach (TorchController t in ActiveTorches)
+        {
+            if (tCount >= MaxTorches) break;
+            if (t == null || !t.isActiveAndEnabled || !t.IsLit || t.SuppressionRadius <= 0.05f) continue;
+            Vector3 p = t.transform.position;
+            TorchSpheres[tCount] = new Vector4(p.x, p.y, p.z, t.SuppressionRadius);
+            TorchParams[tCount] = new Vector4(t.HoleEdgeSoftness, 1f, t.IsHeldByPlayer ? 1f : 0f, 0f);
+            tCount++;
+        }
+        activeTorchCount = tCount;
         if (Application.isPlaying) lastPushFrame = Time.frameCount;
 
         Shader.SetGlobalInt(BeamCountId, count);
         if (count > 0)
         {
-            Shader.SetGlobalVectorArray(BeamStartsId, BeamStarts);
-            Shader.SetGlobalVectorArray(BeamDirsId, BeamDirs);
-            Shader.SetGlobalVectorArray(BeamColorsId, BeamColors);
-            Shader.SetGlobalVectorArray(BeamParamsId, BeamParams);
+            Shader.SetGlobalVectorArray(BeamStartsId, BeamStarts); Shader.SetGlobalVectorArray(BeamDirsId, BeamDirs);
+            Shader.SetGlobalVectorArray(BeamColorsId, BeamColors); Shader.SetGlobalVectorArray(BeamParamsId, BeamParams);
         }
+        Shader.SetGlobalInt(TorchCountId, tCount);
+        if (tCount > 0) { Shader.SetGlobalVectorArray(TorchSpheresId, TorchSpheres); Shader.SetGlobalVectorArray(TorchParamsId, TorchParams); }
+    }
+
+    private static float ComputeTorchMask(int idx, float dist)
+    {
+        float radius = Mathf.Max(TorchSpheres[idx].w, 0.05f), softness = Mathf.Clamp(TorchParams[idx].x, 0.05f, 0.95f);
+        if (dist >= radius) return 0f;
+        float innerR = radius * (1f - softness), t = Mathf.Clamp01((dist - innerR) / Mathf.Max(0.0001f, radius - innerR));
+        return (1f - t * t * (3f - 2f * t)) * Mathf.Clamp01(TorchParams[idx].y);
+    }
+
+    public static float EvaluateTorchLightMultiplier(Vector3 worldPos)
+    {
+        if (Application.isPlaying && lastPushFrame != Time.frameCount) PushToShaderGlobals();
+        if (activeTorchCount <= 0) return 1f;
+        float maxCarve = 0f;
+        for (int i = 0; i < activeTorchCount; i++)
+            maxCarve = Mathf.Max(maxCarve, ComputeTorchMask(i, Vector3.Distance(worldPos, new Vector3(TorchSpheres[i].x, TorchSpheres[i].y, TorchSpheres[i].z))));
+        return 1f - Mathf.Clamp01(maxCarve);
+    }
+
+    public static float EvaluateTorchBeamMultiplier(
+        Vector3 worldPos, Vector3 beamOrigin, Vector3 beamDir, float topRadius, float bottomRadius, float fullConeLen, bool isHorizontalPrismBeam = true, bool ignoreHeldTorches = false)
+    {
+        if (Application.isPlaying && lastPushFrame != Time.frameCount) PushToShaderGlobals();
+        if (activeTorchCount <= 0) return 1f;
+        Vector3 dir = beamDir.sqrMagnitude > 0.0001f ? beamDir.normalized : Vector3.forward;
+        Vector3 toP = worldPos - beamOrigin; float tP = Vector3.Dot(toP, dir); Vector3 perpP = toP - dir * tP;
+        float safeFullLen = Mathf.Max(fullConeLen, 0.05f), coneRP = Mathf.Max(0.05f, Mathf.Lerp(topRadius, bottomRadius, Mathf.Clamp01(tP / safeFullLen)));
+        float maxCarve = 0f;
+        for (int i = 0; i < activeTorchCount; i++)
+        {
+            if (ignoreHeldTorches && TorchParams[i].z > 0.5f) continue;
+            Vector3 center = new Vector3(TorchSpheres[i].x, TorchSpheres[i].y, TorchSpheres[i].z); float radius = Mathf.Max(TorchSpheres[i].w, 0.05f);
+            Vector3 toT = center - beamOrigin; float tT = Vector3.Dot(toT, dir);
+            Vector3 delta;
+            if (tT > -radius * 0.85f && tP > tT)
+            {
+                float coneRT = Mathf.Max(0.05f, Mathf.Lerp(topRadius, bottomRadius, Mathf.Clamp01(Mathf.Max(0f, tT) / safeFullLen)));
+                delta = (perpP / Mathf.Max(1f, coneRP / Mathf.Max(coneRT, 0.1f))) - (toT - dir * tT);
+            }
+            else delta = worldPos - center;
+            if (isHorizontalPrismBeam) delta.y *= 0.55f;
+            maxCarve = Mathf.Max(maxCarve, ComputeTorchMask(i, delta.magnitude));
+        }
+        return 1f - Mathf.Clamp01(maxCarve);
     }
 
     public static bool EvaluateCarveAtPoint(
@@ -170,41 +258,30 @@ public static class AlbedoWallLightGlobals
     {
         if (Application.isPlaying && lastPushFrame != Time.frameCount) PushToShaderGlobals();
         if (activeBeamCount <= 0) return false;
-
-        float maxWeight = 0f;
-        Vector3 accumColor = Vector3.zero;
+        float maxWeight = 0f; Vector3 accumColor = Vector3.zero;
         for (int i = 0; i < activeBeamCount; i++)
         {
             if (ignorePrismBeams && BeamParams[i].y > 0.5f) continue;
-            float strength = BeamParams[i].z;
-            if (strength <= 0.05f) continue;
-            Vector3 origin = new Vector3(BeamStarts[i].x, BeamStarts[i].y, BeamStarts[i].z);
-            Vector3 dir = new Vector3(BeamDirs[i].x, BeamDirs[i].y, BeamDirs[i].z);
-            float hitLen = Mathf.Max(BeamDirs[i].w, 0.001f);
-            Vector3 toP = worldPos - origin;
-            float tProj = Vector3.Dot(toP, dir);
-            if (tProj < -marginRadius || tProj > hitLen + 3.0f) continue;
-
+            float strength = BeamParams[i].z; if (strength <= 0.05f) continue;
+            Vector3 origin = new Vector3(BeamStarts[i].x, BeamStarts[i].y, BeamStarts[i].z), dir = new Vector3(BeamDirs[i].x, BeamDirs[i].y, BeamDirs[i].z);
+            float hitLen = Mathf.Max(BeamDirs[i].w, 0.001f); Vector3 toP = worldPos - origin; float tProj = Vector3.Dot(toP, dir);
+            float endPad = BeamParams[i].y > 0.5f ? 0.20f : 3.0f;
+            if (tProj < -marginRadius || tProj > hitLen + endPad) continue;
             float baseConeR = Mathf.Lerp(BeamStarts[i].w, BeamColors[i].w, Mathf.Clamp01(tProj / Mathf.Max(BeamParams[i].x, 0.01f)));
-            float coneRadius = Mathf.Max(0.05f, baseConeR * holeScale + holeOffset) + marginRadius;
-            float radialDist = (toP - dir * tProj).magnitude;
+            float coneRadius = Mathf.Max(0.05f, baseConeR * holeScale + holeOffset) + marginRadius, radialDist = (toP - dir * tProj).magnitude;
             if (radialDist > coneRadius + 0.1f) continue;
-
             float tSmooth = Mathf.Clamp01((radialDist - coneRadius * 0.58f) / Mathf.Max(0.0001f, (coneRadius + 0.1f) - coneRadius * 0.58f));
-            float smooth = tSmooth * tSmooth * (3f - 2f * tSmooth);
-            float w = Mathf.Clamp01((1f - smooth) * Mathf.Clamp01(strength));
+            float torchBeamMult = EvaluateTorchBeamMultiplier(worldPos, origin, dir, BeamStarts[i].w, BeamColors[i].w, BeamParams[i].x, BeamParams[i].y > 0.5f, !ignorePrismBeams);
+            float w = Mathf.Clamp01((1f - tSmooth * tSmooth * (3f - 2f * tSmooth)) * Mathf.Clamp01(strength)) * torchBeamMult;
             accumColor += new Vector3(BeamColors[i].x, BeamColors[i].y, BeamColors[i].z) * w;
             if (w > maxWeight) maxWeight = w;
         }
-
         if (maxWeight < 0.25f) return false;
         if (!enforceExactColor) return true;
-
-        float maxAccum = Mathf.Max(accumColor.x, Mathf.Max(accumColor.y, accumColor.z));
-        Vector3 mixed = maxAccum > 0.0001f ? accumColor / maxAccum : Vector3.one;
-        float maxReq = Mathf.Max(requiredColor.r, Mathf.Max(requiredColor.g, requiredColor.b));
-        Vector3 reqNorm = maxReq > 0.0001f ? new Vector3(requiredColor.r, requiredColor.g, requiredColor.b) / maxReq : Vector3.one;
-        return (Vector3.Distance(mixed, reqNorm) / 1.73205f) <= Mathf.Max(0.05f, colorTolerance);
+        float maxAccum = Mathf.Max(accumColor.x, Mathf.Max(accumColor.y, accumColor.z)), maxReq = Mathf.Max(requiredColor.r, Mathf.Max(requiredColor.g, requiredColor.b));
+        Vector3 mixed = maxAccum > 0.0001f ? accumColor / maxAccum : Vector3.one, reqNorm = maxReq > 0.0001f ? new Vector3(requiredColor.r, requiredColor.g, requiredColor.b) / maxReq : Vector3.one;
+        float dist = Mathf.Min(Vector3.Distance(mixed, reqNorm), Vector3.Distance(mixed, Vector3.one)) / 1.73205f;
+        return dist <= Mathf.Max(0.05f, colorTolerance);
     }
 }
 

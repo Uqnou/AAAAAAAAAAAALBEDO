@@ -80,24 +80,26 @@ Shader "ALBEDO/BlackFire"
                 UNITY_TRANSFER_INSTANCE_ID(input, output);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
 
-                float heightMask = saturate(input.positionOS.y + 0.5);
+                float3 pivotWS = TransformObjectToWorld(float3(0.0, 0.0, 0.0));
+                float3 posWS = TransformObjectToWorld(input.positionOS.xyz);
+                half3 normalWS = NormalizeNormalPerVertex(TransformObjectToWorldNormal(input.normalOS));
+                float3 relWS = posWS - pivotWS;
+                float meshScale = saturate(length(relWS) * 1.5);
+                float heightMask = saturate(relWS.y + 0.5);
                 float t = _Time.y * _FlickerSpeed;
 
-                float3 posOS = input.positionOS.xyz;
-                float bulge = sin(posOS.y * 4.5 - t * 1.4) * cos(posOS.x * 3.8 + t * 0.9)
-                            + sin(posOS.z * 4.2 + t * 1.1) * 0.5;
-                posOS += input.normalOS * (bulge * _WaveAmplitude * 0.65 * (0.35 + heightMask * 0.65));
-                posOS.x += sin(t * 0.9 + posOS.y * 4.0) * (_WaveAmplitude * 0.7) * heightMask;
-                posOS.z += cos(t * 1.1 + posOS.y * 3.5) * (_WaveAmplitude * 0.7) * heightMask;
+                float bulge = sin(relWS.y * 4.5 - t * 1.4) * cos(relWS.x * 3.8 + t * 0.9)
+                            + sin(relWS.z * 4.2 + t * 1.1) * 0.5;
+                float amp = _WaveAmplitude * meshScale;
+                posWS += normalWS * (bulge * amp * 0.65 * (0.35 + heightMask * 0.65));
+                posWS.x += sin(t * 0.9 + relWS.y * 4.0) * (amp * 0.7) * heightMask;
+                posWS.z += cos(t * 1.1 + relWS.y * 3.5) * (amp * 0.7) * heightMask;
 
-                VertexPositionInputs posInputs = GetVertexPositionInputs(posOS);
-                VertexNormalInputs normInputs = GetVertexNormalInputs(input.normalOS);
-
-                output.positionCS = posInputs.positionCS;
-                output.positionWS = posInputs.positionWS;
-                output.normalWS = NormalizeNormalPerVertex(normInputs.normalWS);
-                output.positionOS = posOS;
-                output.fogCoord = ComputeFogFactor(posInputs.positionCS.z);
+                output.positionCS = TransformWorldToHClip(posWS);
+                output.positionWS = posWS;
+                output.normalWS = normalWS;
+                output.positionOS = posWS - pivotWS;
+                output.fogCoord = ComputeFogFactor(output.positionCS.z);
                 return output;
             }
 

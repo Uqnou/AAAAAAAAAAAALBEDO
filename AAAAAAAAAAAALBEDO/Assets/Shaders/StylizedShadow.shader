@@ -47,6 +47,7 @@ Shader "Custom/URP_StylizedShadow"
             #pragma fragment frag
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Assets/Shaders/AlbedoTorchCarve.hlsl"
 
             #define ALBEDO_MAX_BEAMS 24
 
@@ -147,7 +148,9 @@ Shader "Custom/URP_StylizedShadow"
 
                     float3 toP = positionWS - origin;
                     float tProj = dot(toP, dir);
-                    if (tProj < -0.45 || tProj > hitLen + 3.0) continue;
+                    bool isHoriz = _AlbedoBeamParams[i].y > 0.5;
+                    float endPad = isHoriz ? 0.25 : 3.0;
+                    if (tProj < -0.45 || tProj > hitLen + endPad) continue;
 
                     float scaleMult = _CarveRadiusScale * (_InstanceCarveParams.w > 0.5 ? _InstanceCarveParams.x : 1.0);
                     float radOffset = _CarveRadiusOffset + (_InstanceCarveParams.w > 0.5 ? _InstanceCarveParams.y : 0.0);
@@ -158,9 +161,11 @@ Shader "Custom/URP_StylizedShadow"
                     float radialMask = 1.0 - smoothstep(coneRadius * (1.0 - softness), coneRadius + 0.2, radialDist);
                     if (radialMask <= 0.001) continue;
 
+                    float fadeStart = isHoriz ? max(0.0, hitLen - 0.10) : (hitLen + 1.8);
                     float longMask = smoothstep(-0.45, 0.08, tProj)
-                                   * (1.0 - smoothstep(hitLen + 1.8, hitLen + 3.0, tProj));
-                    float w = radialMask * longMask * saturate(strength);
+                                   * (1.0 - smoothstep(fadeStart, hitLen + endPad, tProj));
+                    float beamTorchMult = EvaluateTorchBeamMultiplier(positionWS, origin, dir, topRadius, bottomRadius, fullLen, _AlbedoBeamParams[i].y > 0.5);
+                    float w = radialMask * longMask * saturate(strength) * beamTorchMult;
 
                     accumColor += beamCol * w;
                     maxWeight = max(maxWeight, w);
@@ -180,7 +185,9 @@ Shader "Custom/URP_StylizedShadow"
                 {
                     float maxReq = max(_RequiredColor.r, max(_RequiredColor.g, _RequiredColor.b));
                     float3 reqNorm = maxReq > 0.0001 ? (_RequiredColor.rgb / maxReq) : float3(1.0, 1.0, 1.0);
-                    float dist = distance(mixedColor, reqNorm) / 1.73205;
+                    float distExact = distance(mixedColor, reqNorm) / 1.73205;
+                    float distWhite = distance(mixedColor, float3(1.0, 1.0, 1.0)) / 1.73205;
+                    float dist = min(distExact, distWhite);
                     float tol = max(_ColorTolerance, 0.05);
                     float colorMatch = 1.0 - smoothstep(tol * 0.75, tol * 1.15, dist);
                     return saturate(maxWeight * colorMatch);

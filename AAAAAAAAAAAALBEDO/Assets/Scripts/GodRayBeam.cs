@@ -198,8 +198,7 @@ public class GodRayBeam : MonoBehaviour
         r.GetPropertyBlock(propBlock);
         propBlock.SetColor(TintColorId, rayColor);
         propBlock.SetFloat(IntensityId, currentIntensity * suppressionMultiplier);
-        if (r == groundRingRenderer)
-            GodRayProjectionHelper.ApplyProjectionProperties(propBlock, transform, topRadius, bottomRadius, currentHeight, minProjectedHeight);
+        GodRayProjectionHelper.ApplyProjectionProperties(propBlock, transform, topRadius, bottomRadius, currentHeight, minProjectedHeight);
         r.SetPropertyBlock(propBlock);
     }
 
