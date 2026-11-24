@@ -27,8 +27,8 @@ Transform:
   m_GameObject: {fileID: 4786237508241650013}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: -5.1160192, z: 0}
-  m_LocalScale: {x: 4.6010003, y: 7.5725465, z: 4.6010003}
+  m_LocalPosition: {x: 0, y: -5.1386433, z: 0}
+  m_LocalScale: {x: 4.6010003, y: 7.586588, z: 4.6010003}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 5076344496330217817}
@@ -413,8 +413,8 @@ ParticleSystem:
     serializedVersion: 6
     enabled: 1
     type: 8
-    angle: 12.026341
-    length: 8.402292
+    angle: 11.985283
+    length: 8.431937
     boxThickness: {x: 0, y: 0, z: 0}
     radiusThickness: 1
     donutRadius: 0.2

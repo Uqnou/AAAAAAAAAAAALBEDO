@@ -70,18 +70,15 @@ public class PrismaController : MonoBehaviour
         if (customizeGodRaySize && prismGodRay != null) prismGodRay.SetDimensions(godRayTopRadius, godRayBottomRadius, godRayLength);
     }
 
+    public bool IsSyntheticEmitter => transform.parent != null && transform.parent.GetComponent<ChromaticFilterGate>() != null;
     public void SetColorPreset(AlbedoColorPreset preset) { colorPreset = preset; SyncPresetColor(); }
     public void SetSyntheticInput(bool active, Color emittedColor, float strength)
     {
         bool changed = (hasSyntheticInput != active) || (syntheticColor != emittedColor);
         hasSyntheticInput = active; syntheticColor = emittedColor; syntheticStrength = Mathf.Clamp01(strength);
-        if (active && syntheticStrength > 0.01f)
-        {
-            isEmitting = true; activeEmittedColor = emittedColor; currentLightStrength = syntheticStrength;
-            if (Application.isPlaying && !isEvaluating && changed) Update();
-        }
-        else if (!active && isEmitting && activeLights.Count == 0 && incomingPrisms.Count == 0 && lightLayerHits.Count == 0)
-            StopEmissionImmediately();
+        if (active && syntheticStrength > 0.01f) { isEmitting = true; activeEmittedColor = emittedColor; currentLightStrength = syntheticStrength; if (Application.isPlaying && !isEvaluating && changed) Update(); }
+        else if (!active && isEmitting && (IsSyntheticEmitter || (activeLights.Count == 0 && incomingPrisms.Count == 0 && lightLayerHits.Count == 0)))
+        { if (IsSyntheticEmitter) { activeLights.Clear(); incomingPrisms.Clear(); lightLayerHits.Clear(); } StopEmissionImmediately(); }
     }
     private void SyncPresetColor()
     {
@@ -154,13 +151,16 @@ public class PrismaController : MonoBehaviour
             incomingPrisms.RemoveWhere(p => p == null || !p.gameObject.activeInHierarchy || !p.IsEmitting);
             if (lightLayerHits.Count > 0) { tempRemoveBuffer.Clear(); foreach (var c in lightLayerHits.Keys) if (c == null || !c.gameObject.activeInHierarchy) tempRemoveBuffer.Add(c); for (int i = 0; i < tempRemoveBuffer.Count; i++) lightLayerHits.Remove((Collider)tempRemoveBuffer[i]); }
             incomingColorBuffer.Clear(); float maxStrength = 0f;
-            foreach (var l in activeLights) if (l != null && l.IsActive) { incomingColorBuffer.Add(l.LightColor); maxStrength = Mathf.Max(maxStrength, l.LightFactor); }
-            foreach (var p in incomingPrisms) if (p != null && p != this && p.IsEmitting) { incomingColorBuffer.Add(p.ActiveEmittedColor); maxStrength = Mathf.Max(maxStrength, p.CurrentLightStrength); }
-            if (incomingColorBuffer.Count == 0 && lightLayerHits.Count > 0)
-                foreach (var kvp in lightLayerHits) if (kvp.Key != null && kvp.Key.gameObject.activeInHierarchy)
-                { LightSource ls = kvp.Key.GetComponent<LightSource>() ?? kvp.Key.GetComponentInParent<LightSource>(); if (ls == null || ls.IsActive) { incomingColorBuffer.Add(AlbedoColorUtility.TryExtractObjectColor(kvp.Key.gameObject, out Color c) ? c : kvp.Value); maxStrength = Mathf.Max(maxStrength, ls != null ? ls.LightFactor : 1f); } }
+            if (!IsSyntheticEmitter)
+            {
+                foreach (var l in activeLights) if (l != null && l.IsActive) { incomingColorBuffer.Add(l.LightColor); maxStrength = Mathf.Max(maxStrength, l.LightFactor); }
+                foreach (var p in incomingPrisms) if (p != null && p != this && p.IsEmitting) { incomingColorBuffer.Add(p.ActiveEmittedColor); maxStrength = Mathf.Max(maxStrength, p.CurrentLightStrength); }
+                if (incomingColorBuffer.Count == 0 && lightLayerHits.Count > 0)
+                    foreach (var kvp in lightLayerHits) if (kvp.Key != null && kvp.Key.gameObject.activeInHierarchy)
+                    { LightSource ls = kvp.Key.GetComponent<LightSource>() ?? kvp.Key.GetComponentInParent<LightSource>(); if (ls == null || ls.IsActive) { incomingColorBuffer.Add(AlbedoColorUtility.TryExtractObjectColor(kvp.Key.gameObject, out Color c) ? c : kvp.Value); maxStrength = Mathf.Max(maxStrength, ls != null ? ls.LightFactor : 1f); } }
+            }
             if (hasSyntheticInput && syntheticStrength > 0.01f) { incomingColorBuffer.Add(syntheticColor); maxStrength = Mathf.Max(maxStrength, syntheticStrength); }
-            maxStrength *= AlbedoWallLightGlobals.EvaluateTorchLightMultiplier(GetBeamWorldOrigin());
+            if (!IsSyntheticEmitter) maxStrength *= AlbedoWallLightGlobals.EvaluateTorchLightMultiplier(GetBeamWorldOrigin());
             if (incomingColorBuffer.Count > 0 && maxStrength > 0.01f) { isEmitting = true; currentLightStrength = Mathf.Clamp01(maxStrength); RefreshSourceGodRay(); activeEmittedColor = hasSyntheticInput ? syntheticColor : ComputeEmittedColor(EffectivePrismColor, AlbedoColorUtility.CombineAdditive(incomingColorBuffer), colorMode); UpdateBeamAndTargets(); }
             else if (isEmitting) StopEmissionImmediately();
         }
@@ -270,13 +270,14 @@ public class PrismaController : MonoBehaviour
         return gate != null && gate.OwnsEmitter(this) && gate.HasUpstreamSource(candidate, depth - 1);
     }
 
-    public void ReceivePrismBeam(bool illuminated, PrismaController source) { if (source != null && source != this) { if (illuminated) incomingPrisms.Add(source); else incomingPrisms.Remove(source); } }
+    public void ReceivePrismBeam(bool illuminated, PrismaController source) { if (!IsSyntheticEmitter && source != null && source != this) { if (illuminated) incomingPrisms.Add(source); else incomingPrisms.Remove(source); } }
     public void RegisterDirectGodRay(GodRayBeam gr) => ToggleLightRegistration(gr != null ? gr.GetComponent<Collider>() : null, gr, true);
     public void UnregisterDirectGodRay(GodRayBeam gr) => ToggleLightRegistration(gr != null ? gr.GetComponent<Collider>() : null, gr, false);
     private bool IsLightLayer(GameObject go) { int mask = lightLayerMask.value != 0 ? lightLayerMask.value : (1 << LayerMask.NameToLayer("Light")); return go != null && ((mask & (1 << go.layer)) != 0 || (go.transform.parent != null && (mask & (1 << go.transform.parent.gameObject.layer)) != 0)); }
 
     private void ToggleLightRegistration(Collider col, GodRayBeam directGr, bool add)
     {
+        if (IsSyntheticEmitter) return;
         Transform refT = col != null ? col.transform : (directGr != null ? directGr.transform : null);
         if (refT == null || (add && refT.IsChildOf(transform))) return;
         if (!add && col != null) lightLayerHits.Remove(col);
@@ -288,7 +289,6 @@ public class PrismaController : MonoBehaviour
         if (add) { if (ls != null && !ls.transform.IsChildOf(transform)) activeLights.Add(ls); else if (gr != null && !gr.transform.IsChildOf(transform)) activeLights.Add(gr.GetComponent<LightSource>() ?? gr.gameObject.AddComponent<LightSource>()); if (gr != null && !gr.transform.IsChildOf(transform)) activeSourceGodRay = gr; }
         else { if (ls != null) activeLights.Remove(ls); if (gr != null && gr == activeSourceGodRay) { activeSourceGodRay = null; RefreshSourceGodRay(); } if (activeLights.Count == 0 && lightLayerHits.Count == 0) activeSourceGodRay = null; }
     }
-
     private void OnTriggerEnter(Collider o) => ToggleLightRegistration(o, null, true);
     private void OnTriggerStay(Collider o) => ToggleLightRegistration(o, null, true);
     private void OnTriggerExit(Collider o) => ToggleLightRegistration(o, null, false);

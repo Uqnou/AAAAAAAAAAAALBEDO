@@ -94,7 +94,7 @@ public static class AlbedoWallLightGlobals
     {
         foreach (var p in ActivePrisms)
         {
-            if (p == null || p == source || !p.isActiveAndEnabled || newlyHitPrisms.Contains(p) || source.HasUpstreamSource(p, 8)) continue;
+            if (p == null || p == source || !p.isActiveAndEnabled || p.IsSyntheticEmitter || newlyHitPrisms.Contains(p) || source.HasUpstreamSource(p, 8)) continue;
             if (IsTargetHitByBeam(origin, dir, hitDist, 0.5f, maxDist, topR, botR, p.GetBeamWorldOrigin(), source.transform, p.transform, obstacleLayers))
             { newlyHitPrisms.Add(p); p.ReceivePrismBeam(true, source); }
         }
@@ -278,13 +278,16 @@ public static class AlbedoWallLightGlobals
             float tSmooth = Mathf.Clamp01((radialDist - coneRadius * 0.58f) / Mathf.Max(0.0001f, (coneRadius + 0.1f) - coneRadius * 0.58f));
             float torchBeamMult = EvaluateTorchBeamMultiplier(worldPos, origin, dir, BeamStarts[i].w, BeamColors[i].w, BeamParams[i].x, BeamParams[i].y > 0.5f, ignoreHeldTorches);
             float w = Mathf.Clamp01((1f - tSmooth * tSmooth * (3f - 2f * tSmooth)) * Mathf.Clamp01(strength)) * torchBeamMult;
-            accumColor += new Vector3(BeamColors[i].x, BeamColors[i].y, BeamColors[i].z) * w;
+            float colorWeight = Mathf.Clamp01((w - 0.05f) / 0.20f) * Mathf.Clamp01(strength);
+            accumColor += new Vector3(BeamColors[i].x, BeamColors[i].y, BeamColors[i].z) * colorWeight;
             if (w > maxWeight) maxWeight = w;
         }
         if (maxWeight < 0.25f) return false;
         if (!enforceExactColor) return true;
         float maxAccum = Mathf.Max(accumColor.x, Mathf.Max(accumColor.y, accumColor.z)), maxReq = Mathf.Max(requiredColor.r, Mathf.Max(requiredColor.g, requiredColor.b));
-        Vector3 mixed = maxAccum > 0.0001f ? accumColor / maxAccum : Vector3.one, reqNorm = maxReq > 0.0001f ? new Vector3(requiredColor.r, requiredColor.g, requiredColor.b) / maxReq : Vector3.one;
+        float normDiv = Mathf.Max(0.0001f, Mathf.Min(maxAccum, 1f));
+        Vector3 mixed = maxAccum > 0.0001f ? new Vector3(Mathf.Clamp01(accumColor.x / normDiv), Mathf.Clamp01(accumColor.y / normDiv), Mathf.Clamp01(accumColor.z / normDiv)) : Vector3.one;
+        Vector3 reqNorm = maxReq > 0.0001f ? new Vector3(requiredColor.r, requiredColor.g, requiredColor.b) / maxReq : Vector3.one;
         return Mathf.Min(Vector3.Distance(mixed, reqNorm), Vector3.Distance(mixed, Vector3.one)) / 1.73205f <= Mathf.Max(0.05f, colorTolerance);
     }
 }

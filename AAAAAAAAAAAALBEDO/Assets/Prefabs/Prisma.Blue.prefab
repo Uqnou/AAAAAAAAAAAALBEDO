@@ -1,0 +1,221 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &190931059388489040
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 7416957847743966959}
+  - component: {fileID: 1464532612788688225}
+  - component: {fileID: 8636288216766594594}
+  - component: {fileID: 5051140942457426387}
+  - component: {fileID: 8428417167691797200}
+  - component: {fileID: 3389206655778830468}
+  - component: {fileID: 7939033691389220435}
+  - component: {fileID: 3708651993132174244}
+  m_Layer: 0
+  m_Name: Prisma.Blue
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &7416957847743966959
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 190931059388489040}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0.00000013767877, y: 0.7071068, z: -0.70710677, w: 0.00000013767878}
+  m_LocalPosition: {x: -23.697456, y: 2.4574451, z: -20.716452}
+  m_LocalScale: {x: 0.16843699, y: 0.16843699, z: 0.16843699}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!33 &1464532612788688225
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 190931059388489040}
+  m_Mesh: {fileID: -7494131659158183203, guid: 65cd0d5b42603744489f2db63ca31583, type: 3}
+--- !u!23 &8636288216766594594
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 190931059388489040}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 2100000, guid: 96dce9c9a2a2ed54bbce691da937559b, type: 2}
+  - {fileID: 2100000, guid: 91db99783a63e5946b52540bcede52f2, type: 2}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_MaskInteraction: 0
+  m_AdditionalVertexStreams: {fileID: 0}
+--- !u!54 &5051140942457426387
+Rigidbody:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 190931059388489040}
+  serializedVersion: 5
+  m_Mass: 1
+  m_LinearDamping: 0
+  m_AngularDamping: 0.05
+  m_CenterOfMass: {x: 0, y: 0, z: 0}
+  m_InertiaTensor: {x: 1, y: 1, z: 1}
+  m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ImplicitCom: 1
+  m_ImplicitTensor: 1
+  m_UseGravity: 1
+  m_IsKinematic: 0
+  m_Interpolate: 0
+  m_Constraints: 0
+  m_CollisionDetection: 0
+--- !u!114 &8428417167691797200
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 190931059388489040}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 98839d09c86debf4a84a5510b4afd405, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PickableObject
+  lockTiltWhenDropped: 1
+  settleOnDrop: 1
+  standUprightWhenHeld: 0
+--- !u!65 &3389206655778830468
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 190931059388489040}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 1.6847717, y: 2.5173612, z: 1.5915898}
+  m_Center: {x: -1.8037277e-15, y: 0.033963557, z: -0.04659095}
+--- !u!114 &7939033691389220435
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 190931059388489040}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d6bc7cc03515b2c4ab0b6d93d87cf5dd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PrismaController
+  colorPreset: 4
+  prismColor: {r: 0, g: 0, b: 1, a: 1}
+  colorMode: 0
+  syncVisualIndicator: 0
+  visualMaterialSlot: 1
+  emitGodRay: 1
+  customizeGodRaySize: 1
+  godRayPrefab: {fileID: 8899919948920258699, guid: e61fc530845d0854ca01d5888b7a2abc, type: 3}
+  prismGodRay: {fileID: 0}
+  lightLayerMask:
+    serializedVersion: 2
+    m_Bits: 64
+  godRayTopRadius: 0.35
+  godRayBottomRadius: 2.14
+  godRayLength: 30
+  emissionPoint: {fileID: 0}
+  emissionDirection: {x: 0, y: 0, z: 1}
+  keepBeamHorizontal: 1
+  useLineRendererWithGodRay: 0
+  enableDynamicLight: 0
+  beamRange: 30
+  beamRadius: 0.35
+  visualBeamWidth: 0.25
+  spotlightIntensity: 3.5
+  beamMaterial: {fileID: 0}
+  obstacleLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+--- !u!114 &3708651993132174244
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 190931059388489040}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c754ff452fc27e145ab69935bd5d4946, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ItemProximityGlow
+  detectRadius: 22
+  fullGlowRadius: 10
+  outlineWidth: 0.065
+  fillOpacity: 0.58
+  fadeSpeed: 4
+  overrideGlowColor: {r: 0, g: 0, b: 0, a: 0}
+  unlitTorchGlowColor: {r: 1, g: 0.48, b: 0.04, a: 1}
+  litTorchGlowColor: {r: 0.74, g: 0.18, b: 1, a: 1}

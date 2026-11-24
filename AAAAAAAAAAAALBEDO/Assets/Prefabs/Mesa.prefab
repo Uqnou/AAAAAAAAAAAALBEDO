@@ -1,0 +1,286 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &887499775023299903
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4047649356200713741}
+  - component: {fileID: 7438013229559251202}
+  m_Layer: 0
+  m_Name: Slot_Prisma_1
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4047649356200713741
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 887499775023299903}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: 1, z: -0, w: -0.00000004371139}
+  m_LocalPosition: {x: -0.5444056, y: 0.83496636, z: -0.009782939}
+  m_LocalScale: {x: 0.9258263, y: 0.9258263, z: 0.9258263}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 944845721944796192}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &7438013229559251202
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 887499775023299903}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 44bd911a73ec7e84289969dc5cf4000f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PrismSnapSlot
+  snapPoint: {fileID: 0}
+  positionOffset: {x: 0, y: 0, z: 0}
+  rotationEulerOffset: {x: 0, y: 0, z: 0}
+  useAbsoluteWorldRotation: 0
+  preservePrismUprightTilt: 1
+  snapRadius: 2.6
+  onlyPrisms: 1
+  autoSnapOnDropNearby: 1
+  showPromptWhenHolding: 1
+  promptText: '[E] Encaixar'
+  promptHeightOffset: 0.85
+  promptScale: {x: 0.25, y: 0.25, z: 0.25}
+--- !u!1 &3722008123716152755
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 944845721944796192}
+  - component: {fileID: 1362673052686273968}
+  - component: {fileID: 1804327694757465431}
+  - component: {fileID: 6027784181474630479}
+  m_Layer: 0
+  m_Name: Mesa
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &944845721944796192
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3722008123716152755}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 7.125, y: 2.6581392, z: -11.87}
+  m_LocalScale: {x: 1.0801163, y: 1.0801163, z: 1.0801163}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 4047649356200713741}
+  - {fileID: 6823923411564427765}
+  - {fileID: 4300935704719874603}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!33 &1362673052686273968
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3722008123716152755}
+  m_Mesh: {fileID: 6335965048631572536, guid: 65cd0d5b42603744489f2db63ca31583, type: 3}
+--- !u!23 &1804327694757465431
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3722008123716152755}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 2100000, guid: 1073645fd9f10d2409466b01414f1507, type: 2}
+  - {fileID: 2100000, guid: e82c3a617437e574ba01b3f8feb11f97, type: 2}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_MaskInteraction: 0
+  m_AdditionalVertexStreams: {fileID: 0}
+--- !u!65 &6027784181474630479
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3722008123716152755}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 1.8085594, y: 1.2196857, z: 1.8085595}
+  m_Center: {x: -0.000000059604645, y: -0.07981068, z: 0}
+--- !u!1 &3967899109931910001
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4300935704719874603}
+  - component: {fileID: 4667781282167801402}
+  m_Layer: 0
+  m_Name: Slot_Prisma_3
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4300935704719874603
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3967899109931910001}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: 1, z: -0, w: -0.00000004371139}
+  m_LocalPosition: {x: 0.6128773, y: 0.83496636, z: -0.009782939}
+  m_LocalScale: {x: 0.9258263, y: 0.9258263, z: 0.9258263}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 944845721944796192}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &4667781282167801402
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3967899109931910001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 44bd911a73ec7e84289969dc5cf4000f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PrismSnapSlot
+  snapPoint: {fileID: 0}
+  positionOffset: {x: 0, y: 0, z: 0}
+  rotationEulerOffset: {x: 0, y: 0, z: 0}
+  useAbsoluteWorldRotation: 0
+  preservePrismUprightTilt: 1
+  snapRadius: 2.6
+  onlyPrisms: 1
+  autoSnapOnDropNearby: 1
+  showPromptWhenHolding: 1
+  promptText: '[E] Encaixar'
+  promptHeightOffset: 0.85
+  promptScale: {x: 0.25, y: 0.25, z: 0.25}
+--- !u!1 &7485304138182987891
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 6823923411564427765}
+  - component: {fileID: 5109538415036531131}
+  m_Layer: 0
+  m_Name: Slot_Prisma_2
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &6823923411564427765
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7485304138182987891}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: 1, z: -0, w: -0.00000004371139}
+  m_LocalPosition: {x: 0.12218918, y: 0.83496636, z: -0.31530556}
+  m_LocalScale: {x: 0.9258263, y: 0.9258263, z: 0.9258263}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 944845721944796192}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &5109538415036531131
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7485304138182987891}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 44bd911a73ec7e84289969dc5cf4000f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PrismSnapSlot
+  snapPoint: {fileID: 0}
+  positionOffset: {x: 0, y: 0, z: 0}
+  rotationEulerOffset: {x: 0, y: 0, z: 0}
+  useAbsoluteWorldRotation: 0
+  preservePrismUprightTilt: 1
+  snapRadius: 2.6
+  onlyPrisms: 1
+  autoSnapOnDropNearby: 1
+  showPromptWhenHolding: 1
+  promptText: '[E] Encaixar'
+  promptHeightOffset: 0.85
+  promptScale: {x: 0.25, y: 0.25, z: 0.25}

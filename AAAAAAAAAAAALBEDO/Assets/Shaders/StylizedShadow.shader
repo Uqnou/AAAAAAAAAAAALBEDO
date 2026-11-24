@@ -169,7 +169,7 @@ Shader "Custom/URP_StylizedShadow"
                     float beamTorchMult = EvaluateTorchBeamMultiplier(positionWS, origin, dir, topRadius, bottomRadius, fullLen, _AlbedoBeamParams[i].y > 0.5);
                     float w = radialMask * longMask * saturate(strength) * beamTorchMult;
 
-                    accumColor += beamCol * w;
+                    accumColor += beamCol * saturate(strength) * smoothstep(0.05, 0.25, w);
                     maxWeight = max(maxWeight, w);
                 }
 
@@ -180,7 +180,8 @@ Shader "Custom/URP_StylizedShadow"
                 }
 
                 float maxAccum = max(accumColor.r, max(accumColor.g, accumColor.b));
-                float3 mixedColor = maxAccum > 0.0001 ? (accumColor / maxAccum) : float3(1.0, 1.0, 1.0);
+                float normDiv = max(0.0001, min(maxAccum, 1.0));
+                float3 mixedColor = maxAccum > 0.0001 ? saturate(accumColor / normDiv) : float3(1.0, 1.0, 1.0);
                 outLightColor = mixedColor;
 
                 if (_RequiredColor.a > 0.5)

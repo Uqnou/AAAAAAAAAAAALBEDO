@@ -35,8 +35,7 @@ public class PrismSnapSlot : MonoBehaviour
     [SerializeField] private float promptHeightOffset = 0.85f;
     [SerializeField] private Vector3 promptScale = new Vector3(0.25f, 0.25f, 0.25f);
 
-    private GameObject promptHolder;
-    private bool isPromptVisible = false;
+    private InteractionPrompt interactionPrompt;
 
     public PickableObject OccupiedObject { get; private set; }
     public bool IsOccupied => OccupiedObject != null && !OccupiedObject.IsPickedUp && OccupiedObject.CurrentSlot == this;
@@ -73,14 +72,6 @@ public class PrismSnapSlot : MonoBehaviour
     private void OnDestroy()
     {
         AllSlots.Remove(this);
-        if (promptHolder != null) Destroy(promptHolder);
-    }
-
-    private void LateUpdate()
-    {
-        if (!Application.isPlaying || !isPromptVisible || promptHolder == null) return;
-        promptHolder.transform.position = GetTargetPosition() + Vector3.up * promptHeightOffset;
-        if (Camera.main != null) promptHolder.transform.rotation = Camera.main.transform.rotation;
     }
 
     public bool CanAccept(PickableObject obj) =>
@@ -141,26 +132,19 @@ public class PrismSnapSlot : MonoBehaviour
     public void ShowPrompt()
     {
         if (!Application.isPlaying || !showPromptWhenHolding || IsOccupied) return;
-        if (promptHolder == null)
+        if (interactionPrompt == null)
         {
-            promptHolder = new GameObject($"SnapPrompt_{name}");
-            promptHolder.transform.localScale = promptScale;
-            TextMesh tm = promptHolder.AddComponent<TextMesh>();
-            tm.text = promptText;
-            tm.fontSize = 48;
-            tm.alignment = TextAlignment.Center;
-            tm.anchor = TextAnchor.MiddleCenter;
-            tm.color = Color.cyan;
+            interactionPrompt = GetComponent<InteractionPrompt>() ?? gameObject.AddComponent<InteractionPrompt>();
         }
-        isPromptVisible = true;
-        promptHolder.transform.position = GetTargetPosition() + Vector3.up * promptHeightOffset;
-        promptHolder.SetActive(true);
+        string cleanAction = string.IsNullOrEmpty(promptText) ? "Encaixar" : promptText.Replace("[E]", "").Trim();
+        interactionPrompt.Configure("E", string.IsNullOrEmpty(cleanAction) ? "Encaixar" : cleanAction, new Color(0.25f, 0.92f, 1f, 1f), true, promptHeightOffset);
+        interactionPrompt.SetWorldAnchorOverride(GetTargetPosition());
+        interactionPrompt.Show();
     }
 
     public void HidePrompt()
     {
-        isPromptVisible = false;
-        if (promptHolder != null) promptHolder.SetActive(false);
+        if (interactionPrompt != null) interactionPrompt.Hide();
     }
 
     private void OnDrawGizmos()

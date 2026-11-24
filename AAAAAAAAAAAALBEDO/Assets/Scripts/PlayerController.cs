@@ -36,6 +36,13 @@ public class PlayerController : MonoBehaviour
     public PickableObject OffHandTorch => IsTorch(offHandObject) ? offHandObject : (IsTorch(heldObject) ? heldObject : null);
     public bool HasTorchEquipped => IsTorch(heldObject) || IsTorch(offHandObject);
 
+    private bool HasUnlitTorch()
+    {
+        TorchController t1 = heldObject != null ? heldObject.GetComponent<TorchController>() : null;
+        TorchController t2 = offHandObject != null ? offHandObject.GetComponent<TorchController>() : null;
+        return (t1 != null && !t1.IsLit) || (t2 != null && !t2.IsLit);
+    }
+
     public static bool IsTorch(PickableObject obj)
     {
         if (obj == null) return false;
@@ -244,7 +251,15 @@ public class PlayerController : MonoBehaviour
     private void CheckInteractionProximity()
     {
         Collider[] hitColliders = Physics.OverlapSphere(transform.position, interactionRadius, ~0, QueryTriggerInteraction.Collide);
+        BlackFireBrazier prevBrazier = nearestBrazier;
         nearestBrazier = FindClosestVisible<BlackFireBrazier>(hitColliders);
+        bool canIgniteHeldTorch = HasUnlitTorch();
+        if (prevBrazier != null && (prevBrazier != nearestBrazier || !canIgniteHeldTorch)) prevBrazier.HidePrompt();
+        if (nearestBrazier != null)
+        {
+            if (canIgniteHeldTorch) nearestBrazier.ShowPrompt();
+            else nearestBrazier.HidePrompt();
+        }
 
         // Procura slot compatível para a mão principal ou secundária
         PrismSnapSlot slotForMain = heldObject != null ? FindNearestSnapSlot(heldObject) : null;

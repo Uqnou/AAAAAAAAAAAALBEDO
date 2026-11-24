@@ -7,9 +7,15 @@ EditorBuildSettings:
   m_Scenes:
   - enabled: 1
     path: Assets/Scenes/Tutorial.unity
-    guid: 99c9720ab356a0642a771bea13969a05
+    guid: 0272b796fde3d0949bb79a422192b629
   - enabled: 1
     path: Assets/Scenes/Fase1.unity
+    guid: 99c9720ab356a0642a771bea13969a05
+  - enabled: 1
+    path: Assets/Scenes/Fase2.unity
     guid: 9f4ae7ec3768bf346b8282f9be3f1880
+  - enabled: 1
+    path: Assets/Scenes/Fase3.unity
+    guid: 3535045cf10537e43913348418e62879
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}

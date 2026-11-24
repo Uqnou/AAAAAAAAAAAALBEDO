@@ -18,6 +18,12 @@ graph TD
     MOC_GD --> GD_CORE["[[Game Overview e Conceito]]"]
     MOC_GD --> GD_LIGHT["[[Mecânica de Luz e Cores]]"]
     MOC_GD --> GD_SHADOW["[[Mecânica de Sombras e Puzzles]]"]
+    MOC_GD --> GD_LD_STUDY["[[Estudo - Level Design de Portal 2 (Abram e Valve)]]"]
+    MOC_GD --> GD_LD_FW["[[Framework - Level Design de Puzzles no ALBEDO]]"]
+    MOC_GD --> GD_LD_AUDIT["[[Auditoria - Fase 1 Claustro dos Vitrais (Lente Portal)]]"]
+    MOC_GD --> GD_LD_TPL["[[Template - Blueprint de Câmara de Puzzle]]"]
+    MOC_GD --> GD_TUT["[[Level Design - Tutorial (Novo)]]"]
+    MOC_GD --> GD_F3["[[Level Design - Fase 3 (Grand Finale)]]"]
 
     MOC_ARCH --> SC_PLAYER["[[Script - PlayerController]]"]
     MOC_ARCH --> SC_PRISMA["[[Script - PrismaController]]"]
@@ -49,5 +55,7 @@ Navegue rapidamente pelos tópicos do projeto:
 
 ## ⚡ Atalhos Rápidos
 - Regra de Otimização Ativa: [[Diretriz de Economia de Tokens]]
+- Base de Level Design de Puzzles: [[Framework - Level Design de Puzzles no ALBEDO]]
+- Template de Nova Câmara: [[Template - Blueprint de Câmara de Puzzle]]
 - Script mais complexo: [[Script - PrismaController]]
 - Setup de Câmera: [[Script - IsometricCamera]]

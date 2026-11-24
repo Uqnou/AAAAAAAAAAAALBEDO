@@ -88,23 +88,13 @@ public class PickableObject : MonoBehaviour
             rb.constraints |= RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
         }
 
-        prompt = GetComponent<InteractionPrompt>();
-        if (prompt == null)
-        {
-            prompt = gameObject.AddComponent<InteractionPrompt>();
-        }
-
-        if (GetComponent<ItemProximityGlow>() == null)
-        {
-            gameObject.AddComponent<ItemProximityGlow>();
-        }
+        prompt = GetComponent<InteractionPrompt>() ?? gameObject.AddComponent<InteractionPrompt>();
+        if (GetComponent<ItemProximityGlow>() == null) gameObject.AddComponent<ItemProximityGlow>();
 
         if (Application.isPlaying)
         {
             if (gameObject.name.StartsWith("Prisma", System.StringComparison.OrdinalIgnoreCase) && GetComponent<PrismaController>() == null)
-            {
                 gameObject.AddComponent<PrismaController>();
-            }
             else if ((string.Equals(gameObject.name, "Cylinder.003", System.StringComparison.OrdinalIgnoreCase)
                 || gameObject.name.IndexOf("Fogo", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 && GetComponent<TorchController>() == null)
@@ -113,6 +103,7 @@ public class PickableObject : MonoBehaviour
                 if (gameObject.name.IndexOf("Fogo", System.StringComparison.OrdinalIgnoreCase) >= 0) tc.Ignite();
             }
         }
+        prompt.ConfigureForPickable(gameObject);
     }
 
     private void CaptureInitialTilt()
@@ -130,7 +121,7 @@ public class PickableObject : MonoBehaviour
         uprightTiltOffset = Quaternion.Inverse(Quaternion.Euler(0f, currentYaw, 0f)) * transform.rotation;
     }
 
-    public void OnPlayerApproach() { if (!IsPickedUp && prompt != null) prompt.Show(); }
+    public void OnPlayerApproach() { if (!IsPickedUp && prompt != null) { prompt.ConfigureForPickable(gameObject); prompt.Show(); } }
     public void OnPlayerLeave() { if (prompt != null) prompt.Hide(); }
 
     private void ReleaseCurrentSlot()

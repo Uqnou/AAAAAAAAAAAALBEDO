@@ -14,6 +14,21 @@ public class BlackFireBrazier : MonoBehaviour
     [Header("Eventos")]
     public UnityEvent onTorchIgnited = new UnityEvent();
 
+    private InteractionPrompt interactionPrompt;
+
+    public void ShowPrompt()
+    {
+        if (!Application.isPlaying) return;
+        if (interactionPrompt == null) interactionPrompt = GetComponent<InteractionPrompt>() ?? gameObject.AddComponent<InteractionPrompt>();
+        interactionPrompt.Configure("E", "Acender Tocha", new Color(0.85f, 0.35f, 1f, 1f), true, 0.75f);
+        interactionPrompt.Show();
+    }
+
+    public void HidePrompt()
+    {
+        if (interactionPrompt != null) interactionPrompt.Hide();
+    }
+
     private void Awake()
     {
         EnsureTrigger();
@@ -46,6 +61,7 @@ public class BlackFireBrazier : MonoBehaviour
         if (torch == null || torch.IsLit) return false;
 
         torch.Ignite();
+        HidePrompt();
         onTorchIgnited?.Invoke();
         return true;
     }
