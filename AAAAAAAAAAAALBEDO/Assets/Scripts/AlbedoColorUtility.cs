@@ -82,6 +82,30 @@ public static class AlbedoColorUtility
         return new Color(Mathf.Clamp01(r), Mathf.Clamp01(g), Mathf.Clamp01(b), 1f);
     }
 
+    /// <summary>
+    /// Combina luzes recebidas por um prisma priorizando canais coloridos quando há luz branca neutra junto,
+    /// garantindo que feixes encadeados preservem a soma aditiva X + Y sob luz ambiente branca.
+    /// </summary>
+    public static Color CombineIncomingForPrism(IList<Color> colors)
+    {
+        if (colors == null || colors.Count == 0) return Color.black;
+        float cr = 0f, cg = 0f, cb = 0f;
+        bool hasColored = false;
+        for (int i = 0; i < colors.Count; i++)
+        {
+            Color c = colors[i];
+            if (Mathf.Max(c.r, Mathf.Max(c.g, c.b)) <= 0.05f) continue;
+            if (!IsNeutralLight(c))
+            {
+                hasColored = true;
+                cr += Mathf.Max(0f, c.r);
+                cg += Mathf.Max(0f, c.g);
+                cb += Mathf.Max(0f, c.b);
+            }
+        }
+        return hasColored ? new Color(Mathf.Clamp01(cr), Mathf.Clamp01(cg), Mathf.Clamp01(cb), 1f) : CombineAdditive(colors);
+    }
+
     public static Color AddColors(Color a, Color b)
     {
         return new Color(Mathf.Clamp01(a.r + b.r), Mathf.Clamp01(a.g + b.g), Mathf.Clamp01(a.b + b.b), 1f);

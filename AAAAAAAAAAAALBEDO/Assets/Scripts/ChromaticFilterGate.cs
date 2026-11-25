@@ -237,7 +237,8 @@ public class ChromaticFilterGate : MonoBehaviour
         Color filtered = AlbedoColorUtility.ComputeEmittedColor(filterColor, incomingColor, PrismColorMode.Multiply);
         if (Mathf.Max(filtered.r, Mathf.Max(filtered.g, filtered.b)) <= 0.05f)
         {
-            filtered = filterColor;
+            DisableEmitter(emitter);
+            return;
         }
 
         if (emitter == null)

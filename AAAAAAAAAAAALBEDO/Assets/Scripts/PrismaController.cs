@@ -74,6 +74,7 @@ public class PrismaController : MonoBehaviour
     public void SetColorPreset(AlbedoColorPreset preset) { colorPreset = preset; SyncPresetColor(); }
     public void SetSyntheticInput(bool active, Color emittedColor, float strength)
     {
+        active = active && Mathf.Max(emittedColor.r, Mathf.Max(emittedColor.g, emittedColor.b)) > 0.05f;
         bool changed = (hasSyntheticInput != active) || (syntheticColor != emittedColor);
         hasSyntheticInput = active; syntheticColor = emittedColor; syntheticStrength = Mathf.Clamp01(strength);
         if (active && syntheticStrength > 0.01f) { isEmitting = true; activeEmittedColor = emittedColor; currentLightStrength = syntheticStrength; if (Application.isPlaying && !isEvaluating && changed) Update(); }
@@ -161,7 +162,8 @@ public class PrismaController : MonoBehaviour
             }
             if (hasSyntheticInput && syntheticStrength > 0.01f) { incomingColorBuffer.Add(syntheticColor); maxStrength = Mathf.Max(maxStrength, syntheticStrength); }
             if (!IsSyntheticEmitter) maxStrength *= AlbedoWallLightGlobals.EvaluateTorchLightMultiplier(GetBeamWorldOrigin());
-            if (incomingColorBuffer.Count > 0 && maxStrength > 0.01f) { isEmitting = true; currentLightStrength = Mathf.Clamp01(maxStrength); RefreshSourceGodRay(); activeEmittedColor = hasSyntheticInput ? syntheticColor : ComputeEmittedColor(EffectivePrismColor, AlbedoColorUtility.CombineAdditive(incomingColorBuffer), colorMode); UpdateBeamAndTargets(); }
+            Color computed = incomingColorBuffer.Count > 0 && maxStrength > 0.01f ? (hasSyntheticInput ? syntheticColor : ComputeEmittedColor(EffectivePrismColor, AlbedoColorUtility.CombineIncomingForPrism(incomingColorBuffer), colorMode)) : Color.black;
+            if (incomingColorBuffer.Count > 0 && maxStrength > 0.01f && Mathf.Max(computed.r, Mathf.Max(computed.g, computed.b)) > 0.05f) { isEmitting = true; currentLightStrength = Mathf.Clamp01(maxStrength); RefreshSourceGodRay(); activeEmittedColor = computed; UpdateBeamAndTargets(); }
             else if (isEmitting) StopEmissionImmediately();
         }
         finally { isEvaluating = false; }
