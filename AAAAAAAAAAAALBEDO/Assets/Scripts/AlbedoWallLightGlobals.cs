@@ -263,7 +263,8 @@ public static class AlbedoWallLightGlobals
     {
         if (Application.isPlaying && lastPushFrame != Time.frameCount) PushToShaderGlobals();
         if (activeBeamCount <= 0) return false;
-        float maxWeight = 0f; Vector3 accumColor = Vector3.zero;
+        float maxWeight = 0f, matchingWeight = 0f, tol = Mathf.Max(0.05f, colorTolerance), maxReq = Mathf.Max(requiredColor.r, Mathf.Max(requiredColor.g, requiredColor.b));
+        Vector3 accumColor = Vector3.zero, reqNorm = maxReq > 0.0001f ? new Vector3(requiredColor.r, requiredColor.g, requiredColor.b) / maxReq : Vector3.one;
         for (int i = 0; i < activeBeamCount; i++)
         {
             if ((ignorePrismBeams && BeamParams[i].y > 0.5f) || (ignoreCeilingBeams && BeamParams[i].y < 0.5f)) continue;
@@ -278,17 +279,20 @@ public static class AlbedoWallLightGlobals
             float tSmooth = Mathf.Clamp01((radialDist - coneRadius * 0.58f) / Mathf.Max(0.0001f, (coneRadius + 0.1f) - coneRadius * 0.58f));
             float torchBeamMult = EvaluateTorchBeamMultiplier(worldPos, origin, dir, BeamStarts[i].w, BeamColors[i].w, BeamParams[i].x, BeamParams[i].y > 0.5f, ignoreHeldTorches);
             float w = Mathf.Clamp01((1f - tSmooth * tSmooth * (3f - 2f * tSmooth)) * Mathf.Clamp01(strength)) * torchBeamMult;
-            float colorWeight = Mathf.Clamp01((w - 0.05f) / 0.20f) * Mathf.Clamp01(strength);
-            accumColor += new Vector3(BeamColors[i].x, BeamColors[i].y, BeamColors[i].z) * colorWeight;
+            Vector3 bCol = new Vector3(BeamColors[i].x, BeamColors[i].y, BeamColors[i].z);
+            accumColor += bCol * (Mathf.Clamp01((w - 0.05f) / 0.20f) * Mathf.Clamp01(strength));
             if (w > maxWeight) maxWeight = w;
+            if (enforceExactColor && w >= 0.25f)
+            {
+                Vector3 bNorm = Mathf.Max(bCol.x, Mathf.Max(bCol.y, bCol.z)) is float bMax && bMax > 0.0001f ? bCol / bMax : Vector3.one;
+                if (Mathf.Min(Vector3.Distance(bNorm, reqNorm), Vector3.Distance(bNorm, Vector3.one)) / 1.73205f <= tol && w > matchingWeight) matchingWeight = w;
+            }
         }
         if (maxWeight < 0.25f) return false;
-        if (!enforceExactColor) return true;
-        float maxAccum = Mathf.Max(accumColor.x, Mathf.Max(accumColor.y, accumColor.z)), maxReq = Mathf.Max(requiredColor.r, Mathf.Max(requiredColor.g, requiredColor.b));
-        float normDiv = Mathf.Max(0.0001f, Mathf.Min(maxAccum, 1f));
+        if (!enforceExactColor || matchingWeight >= 0.25f) return true;
+        float maxAccum = Mathf.Max(accumColor.x, Mathf.Max(accumColor.y, accumColor.z)), normDiv = Mathf.Max(0.0001f, Mathf.Min(maxAccum, 1f));
         Vector3 mixed = maxAccum > 0.0001f ? new Vector3(Mathf.Clamp01(accumColor.x / normDiv), Mathf.Clamp01(accumColor.y / normDiv), Mathf.Clamp01(accumColor.z / normDiv)) : Vector3.one;
-        Vector3 reqNorm = maxReq > 0.0001f ? new Vector3(requiredColor.r, requiredColor.g, requiredColor.b) / maxReq : Vector3.one;
-        return Mathf.Min(Vector3.Distance(mixed, reqNorm), Vector3.Distance(mixed, Vector3.one)) / 1.73205f <= Mathf.Max(0.05f, colorTolerance);
+        return Mathf.Min(Vector3.Distance(mixed, reqNorm), Vector3.Distance(mixed, Vector3.one)) / 1.73205f <= tol;
     }
 }
 

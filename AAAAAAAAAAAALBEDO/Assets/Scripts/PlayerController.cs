@@ -101,7 +101,7 @@ public class PlayerController : MonoBehaviour
         foreach (Light lt in Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
         {
             if (lt == null || lt.type == LightType.Directional) continue;
-            if (lt.GetComponentInParent<PrismaController>() != null || lt.GetComponentInParent<GodRayBeam>() != null) continue;
+            if (lt.GetComponentInParent<PrismaController>() != null || lt.GetComponentInParent<GodRayBeam>() != null || lt.GetComponentInParent<ExitGodRayController>() != null) continue;
             if (lightLayer != -1) lt.gameObject.layer = lightLayer;
             BoxCollider box = lt.GetComponent<BoxCollider>();
             if (box == null && lt.GetComponent<Collider>() == null) { box = lt.gameObject.AddComponent<BoxCollider>(); box.size = new Vector3(3.5f, 3.5f, 22f); box.center = new Vector3(0f, 0f, 10f); }

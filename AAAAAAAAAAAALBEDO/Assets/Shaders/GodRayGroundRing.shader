@@ -11,6 +11,16 @@ Shader "Custom/GodRayGroundRing"
         _BaseAlpha ("Base Alpha", Range(0.0, 1.0)) = 0.55
         _WhiteAlphaScale ("White Ring Transparency Scale", Range(0.05, 1.0)) = 0.42
         _SurfaceNormalFade ("Surface Angle Falloff", Range(0.0, 1.0)) = 0.45
+
+        [Header(Halftone Dots)]
+        [Toggle] _HalftoneEnabled ("Enable Halftone Dots", Float) = 1.0
+        _HalftoneFrequency ("Dot Frequency / Grid Size", Float) = 100.0
+        _HalftoneAspect ("Dot Aspect Ratio (X/Y)", Float) = 1.7777778
+        _HalftoneSteps ("Quantization Steps", Float) = 4.0
+        _HalftoneDotScale ("Max Dot Radius", Range(0.1, 0.5)) = 0.44
+        _HalftoneGain ("Dot Coverage Gain", Range(0.5, 4.0)) = 1.6
+        _HalftoneDotBrightness ("Dot Brightness", Range(0.5, 4.0)) = 1.8
+        _HalftoneSoftGlow ("Soft Glow Under Dots", Range(0.0, 1.0)) = 0.12
         [HideInInspector] _BeamOrigin ("Beam Origin", Vector) = (0.0, 0.0, 0.0, 0.0)
         [HideInInspector] _BeamDir ("Beam Direction", Vector) = (0.0, -1.0, 0.0, 0.0)
         [HideInInspector] _BeamDims ("Beam Dims", Vector) = (0.35, 2.2, 0.0, 0.0)
@@ -70,6 +80,14 @@ Shader "Custom/GodRayGroundRing"
                 float _BaseAlpha;
                 float _WhiteAlphaScale;
                 float _SurfaceNormalFade;
+                float _HalftoneEnabled;
+                float _HalftoneFrequency;
+                float _HalftoneAspect;
+                float _HalftoneSteps;
+                float _HalftoneDotScale;
+                float _HalftoneGain;
+                float _HalftoneDotBrightness;
+                float _HalftoneSoftGlow;
                 float4 _BeamOrigin;
                 float4 _BeamDir;
                 float4 _BeamDims;
@@ -182,11 +200,33 @@ Shader "Custom/GodRayGroundRing"
                 float torchMult = _BeamDims.z > 0.001
                     ? EvaluateTorchBeamMultiplier(surfacePosWS, _BeamOrigin.xyz, bDir, _BeamDims.x, _BeamDims.y, max(_BeamDims.z, 0.01), isHoriz)
                     : EvaluateTorchLightMultiplier(surfacePosWS, false);
-                float totalAlpha = saturate(ringAlpha + innerDisc) * alphaScale * angleAtten * heightFade * torchMult;
                 float pulse = 1.0 + sin(_Time.y * _PulseSpeed) * _PulseAmount;
+                float lightMask = saturate(ringAlpha + innerDisc) * angleAtten * heightFade * torchMult;
+                float totalAlpha = lightMask * alphaScale;
 
-                half3 finalColor = _TintColor.rgb * _Intensity * pulse * totalAlpha;
-                return half4(finalColor, totalAlpha);
+                if (_HalftoneEnabled < 0.5)
+                {
+                    half3 smoothColor = _TintColor.rgb * _Intensity * pulse * totalAlpha;
+                    return half4(smoothColor, totalAlpha);
+                }
+
+                // Halftone em espaço de tela (mesmo grid das paredes Parede2: freq 100, aspect 16:9, 4 degraus)
+                float rawLum = saturate(lightMask * _HalftoneGain * pulse);
+                float qLum = (_HalftoneSteps > 0.0 && rawLum > 0.001) ? (ceil(rawLum * _HalftoneSteps) / _HalftoneSteps) : rawLum;
+
+                float2 screenUV = input.positionCS.xy * _ScreenSize.zw;
+                float2 gridUV = screenUV * float2(_HalftoneFrequency * _HalftoneAspect, _HalftoneFrequency);
+                float dCenter = length(frac(gridUV) - 0.5);
+                float dotRadius = qLum * _HalftoneDotScale;
+                float delta = fwidth(dCenter);
+                float isDot = (qLum > 0.005) ? (1.0 - smoothstep(dotRadius - delta, dotRadius + delta, dCenter)) : 0.0;
+
+                float dotAlpha = isDot * saturate(alphaScale * _HalftoneDotBrightness);
+                float glowAlpha = totalAlpha * _HalftoneSoftGlow;
+                float outAlpha = saturate(dotAlpha + glowAlpha);
+
+                half3 finalColor = _TintColor.rgb * _Intensity * outAlpha;
+                return half4(finalColor, outAlpha);
             }
             ENDHLSL
         }

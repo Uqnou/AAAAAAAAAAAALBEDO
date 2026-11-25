@@ -281,7 +281,7 @@ public class PrismaController : MonoBehaviour
     {
         if (IsSyntheticEmitter) return;
         Transform refT = col != null ? col.transform : (directGr != null ? directGr.transform : null);
-        if (refT == null || (add && refT.IsChildOf(transform))) return;
+        if (refT == null || (add && refT.IsChildOf(transform)) || refT.GetComponentInParent<ExitGodRayController>() != null) return;
         if (!add && col != null) lightLayerHits.Remove(col);
         PrismaController owner = refT.GetComponentInParent<PrismaController>();
         if (owner != null && owner != this) { if (add) { if (!currentlyHitPrisms.Contains(owner) && !HasUpstreamSource(owner, 8)) incomingPrisms.Add(owner); } else incomingPrisms.Remove(owner); return; }

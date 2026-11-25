@@ -128,10 +128,14 @@ Shader "Custom/URP_StylizedShadow"
             float EvaluateShadowCarve(float3 positionWS, out float3 outLightColor)
             {
                 float maxWeight = 0.0;
+                float matchingWeight = 0.0;
                 float3 accumColor = float3(0.0, 0.0, 0.0);
                 int beamCount = min(_AlbedoBeamCount, ALBEDO_MAX_BEAMS);
                 bool ignorePrismBeams = _InstanceCarveParams.w > 1.5; // WalkableBridge só reage a luzes de teto
                 bool ignoreCeilingBeams = _InstanceCarveParams.w < 1.5; // Barrier (paredes) só reage a feixes de prisma
+                float maxReq = max(_RequiredColor.r, max(_RequiredColor.g, _RequiredColor.b));
+                float3 reqNorm = maxReq > 0.0001 ? (_RequiredColor.rgb / maxReq) : float3(1.0, 1.0, 1.0);
+                float tol = max(_ColorTolerance, 0.05);
 
                 [loop] for (int i = 0; i < beamCount; i++)
                 {
@@ -171,6 +175,15 @@ Shader "Custom/URP_StylizedShadow"
 
                     accumColor += beamCol * saturate(strength) * smoothstep(0.05, 0.25, w);
                     maxWeight = max(maxWeight, w);
+
+                    if (_RequiredColor.a > 0.5 && w > 0.001)
+                    {
+                        float bMax = max(beamCol.r, max(beamCol.g, beamCol.b));
+                        float3 bNorm = bMax > 0.0001 ? (beamCol / bMax) : float3(1.0, 1.0, 1.0);
+                        float bDist = min(distance(bNorm, reqNorm), distance(bNorm, float3(1.0, 1.0, 1.0))) / 1.73205;
+                        float bMatch = 1.0 - smoothstep(tol * 0.75, tol * 1.15, bDist);
+                        matchingWeight = max(matchingWeight, w * bMatch);
+                    }
                 }
 
                 if (maxWeight <= 0.001)
@@ -186,14 +199,11 @@ Shader "Custom/URP_StylizedShadow"
 
                 if (_RequiredColor.a > 0.5)
                 {
-                    float maxReq = max(_RequiredColor.r, max(_RequiredColor.g, _RequiredColor.b));
-                    float3 reqNorm = maxReq > 0.0001 ? (_RequiredColor.rgb / maxReq) : float3(1.0, 1.0, 1.0);
                     float distExact = distance(mixedColor, reqNorm) / 1.73205;
                     float distWhite = distance(mixedColor, float3(1.0, 1.0, 1.0)) / 1.73205;
                     float dist = min(distExact, distWhite);
-                    float tol = max(_ColorTolerance, 0.05);
                     float colorMatch = 1.0 - smoothstep(tol * 0.75, tol * 1.15, dist);
-                    return saturate(maxWeight * colorMatch);
+                    return saturate(max(maxWeight * colorMatch, matchingWeight));
                 }
 
                 return saturate(maxWeight);

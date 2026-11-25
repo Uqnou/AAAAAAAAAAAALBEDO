@@ -166,9 +166,11 @@ public class SombraController : MonoBehaviour
         Bounds sb = shadowCol.bounds;
         Vector3 pCenter = player.transform.position + Vector3.up * 0.9f, pLow = player.transform.position + Vector3.up * 0.35f;
         Vector3 cPt = shadowCol.ClosestPoint(pCenter), lPt = shadowCol.ClosestPoint(pLow);
+        Vector3 pAhead = shadowCol.ClosestPoint(pCenter + player.transform.forward * 0.85f);
         bool beamOpen = AlbedoWallLightGlobals.EvaluateCarveAtPoint(cPt, 0.45f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling, true)
                      || AlbedoWallLightGlobals.EvaluateCarveAtPoint(lPt, 0.45f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling, true)
-                     || AlbedoWallLightGlobals.EvaluateCarveAtPoint(pCenter, 0.45f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling, true);
+                     || AlbedoWallLightGlobals.EvaluateCarveAtPoint(pCenter, 0.45f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling, true)
+                     || AlbedoWallLightGlobals.EvaluateCarveAtPoint(pAhead, 0.45f, reqColor, enforceExact, colorTolerance, effScale, effOffset, ignorePrism, ignoreCeiling, true);
         if (!beamOpen) { playerBackwardsPassLatched = false; return false; }
         if (!IsPlayerHoldingLitTorch(player)) { playerBackwardsPassLatched = false; return true; }
 
